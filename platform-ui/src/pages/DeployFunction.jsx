@@ -266,13 +266,13 @@ go 1.16
 
   return (
     <div>
-      <Typography variant="h4" component="h1" gutterBottom>
+      <Typography variant="h5" component="h1" sx={{ fontWeight: 500, mb: 3 }}>
         Deploy Function
       </Typography>
 
-      <Card sx={{ mb: 4 }}>
+      <Card sx={{ mb: 4, borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
         <CardContent>
-          <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
+          <Stepper activeStep={activeStep} sx={{ mb: 4, py: 2 }}>
             {steps.map((label) => (
               <Step key={label}>
                 <StepLabel>{label}</StepLabel>
@@ -281,15 +281,15 @@ go 1.16
           </Stepper>
 
           {error && (
-            <Alert severity="error" sx={{ mb: 3 }}>
-              {error}
-            </Alert>
+            <Paper elevation={0} sx={{ p: 3, mb: 3, borderRadius: '8px', border: '1px solid #e0e0e0' }}>
+              <Alert severity="error">{error}</Alert>
+            </Paper>
           )}
 
           {success && (
-            <Alert severity="success" sx={{ mb: 3 }}>
-              Function deployed successfully! Redirecting to dashboard...
-            </Alert>
+            <Paper elevation={0} sx={{ p: 3, mb: 3, borderRadius: '8px', border: '1px solid #e0e0e0' }}>
+              <Alert severity="success">Function deployed successfully! Redirecting to dashboard...</Alert>
+            </Paper>
           )}
 
           {activeStep === 0 && (
@@ -306,11 +306,12 @@ go 1.16
                     value={functionName}
                     onChange={(e) => setFunctionName(e.target.value)}
                     required
-                    helperText="A unique name for your function"
+                    margin="normal"
+                    sx={{ '& .MuiOutlinedInput-root': { borderRadius: '4px' } }}
                   />
                 </Grid>
                 <Grid item xs={12} md={6}>
-                  <FormControl fullWidth variant="outlined">
+                  <FormControl variant="outlined" fullWidth margin="normal" sx={{ '& .MuiOutlinedInput-root': { borderRadius: '4px' } }}>
                     <InputLabel>Runtime</InputLabel>
                     <Select
                       value={runtime}
@@ -337,21 +338,28 @@ go 1.16
               
               <Box sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
                 <Button
-                  variant={editMode ? "contained" : "outlined"}
-                  color="primary"
+                  variant="outlined"
                   startIcon={<CodeIcon />}
+                  fullWidth
                   onClick={() => setEditMode(true)}
-                  sx={{ mr: 1 }}
+                  sx={{ mt: 1, textTransform: 'none', borderRadius: '4px' }}
                 >
-                  Edit Code
+                  Create/Edit Code
                 </Button>
                 <Button
-                  variant={!editMode ? "contained" : "outlined"}
-                  color="primary"
+                  variant="contained"
+                  component="label"
                   startIcon={<UploadIcon />}
-                  onClick={() => setEditMode(false)}
+                  fullWidth
+                  sx={{ mt: 2, textTransform: 'none', borderRadius: '4px' }}
                 >
-                  Upload ZIP
+                  Upload Zip File
+                  <input
+                    type="file"
+                    hidden
+                    accept=".zip"
+                    onChange={handleFileChange}
+                  />
                 </Button>
               </Box>
               
@@ -363,43 +371,39 @@ go 1.16
                   </Typography>
                 </Box>
               ) : (
-                <>
-                  <Paper
-                    variant="outlined"
-                    sx={{
-                      p: 3,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      minHeight: 200,
-                      backgroundColor: '#f9f9f9',
-                      border: '2px dashed #ccc',
-                      cursor: 'pointer',
-                    }}
-                    onClick={() => document.getElementById('function-code-upload').click()}
-                  >
-                    <input
-                      id="function-code-upload"
-                      type="file"
-                      accept=".zip"
-                      onChange={handleFileChange}
-                      style={{ display: 'none' }}
-                    />
-                    <UploadIcon sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
-                    <Typography variant="body1" gutterBottom>
-                      {file ? file.name : 'Click to upload your function code (ZIP file)'}
-                    </Typography>
-                    {file && (
-                      <Typography variant="body2" color="textSecondary">
-                        {(file.size / 1024).toFixed(2)} KB
-                      </Typography>
-                    )}
-                  </Paper>
-                  <Typography variant="body2" color="textSecondary" sx={{ mt: 2 }}>
-                    Upload a ZIP file containing your function code. Make sure it includes all necessary files for your selected runtime.
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    p: 3,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    minHeight: 200,
+                    backgroundColor: '#f9f9f9',
+                    border: '2px dashed #ccc',
+                    cursor: 'pointer',
+                    borderRadius: '8px',
+                  }}
+                  onClick={() => document.getElementById('function-code-upload').click()}
+                >
+                  <input
+                    id="function-code-upload"
+                    type="file"
+                    accept=".zip"
+                    onChange={handleFileChange}
+                    style={{ display: 'none' }}
+                  />
+                  <UploadIcon sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
+                  <Typography variant="body1" gutterBottom>
+                    {file ? file.name : 'Click to upload your function code (ZIP file)'}
                   </Typography>
-                </>
+                  {file && (
+                    <Typography variant="body2" color="textSecondary">
+                      {(file.size / 1024).toFixed(2)} KB
+                    </Typography>
+                  )}
+                </Paper>
               )}
             </Box>
           )}
@@ -414,7 +418,7 @@ go 1.16
               </Typography>
               <Grid container spacing={2}>
                 <Grid item xs={12} md={6}>
-                  <Paper variant="outlined" sx={{ p: 2 }}>
+                  <Paper variant="outlined" sx={{ p: 2, borderRadius: '8px' }}>
                     <Typography variant="body2" color="textSecondary">
                       Function Name
                     </Typography>
@@ -444,8 +448,9 @@ go 1.16
           <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 3 }}>
             {activeStep > 0 && (
               <Button
+                variant="outlined"
                 onClick={handleBack}
-                sx={{ mr: 1 }}
+                sx={{ mr: 1, textTransform: 'none', borderRadius: '4px' }}
                 disabled={loading}
               >
                 Back
@@ -456,7 +461,7 @@ go 1.16
                 variant="contained"
                 color="primary"
                 onClick={handleNext}
-                disabled={loading}
+                sx={{ textTransform: 'none', borderRadius: '4px' }}
               >
                 Next
               </Button>
@@ -467,6 +472,7 @@ go 1.16
                 onClick={handleDeploy}
                 disabled={loading || success || generatingZip}
                 startIcon={(loading || generatingZip) && <CircularProgress size={20} color="inherit" />}
+                sx={{ textTransform: 'none', borderRadius: '4px' }}
               >
                 {loading ? 'Deploying...' : generatingZip ? 'Preparing Files...' : 'Deploy Function'}
               </Button>
@@ -475,15 +481,17 @@ go 1.16
         </CardContent>
       </Card>
 
-      <Card>
+      <Card sx={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
         <CardContent>
-          <Typography variant="h6" gutterBottom>
+          <Typography variant="h6" gutterBottom sx={{ fontWeight: 500 }}>
             Need Help?
           </Typography>
           <Typography variant="body2" paragraph>
             Check out our documentation for more information on deploying functions:
           </Typography>
-          <Button variant="outlined">View Documentation</Button>
+          <Button variant="outlined" sx={{ textTransform: 'none', borderRadius: '4px' }}>
+            View Documentation
+          </Button>
         </CardContent>
       </Card>
     </div>

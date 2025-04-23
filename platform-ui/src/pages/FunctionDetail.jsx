@@ -344,8 +344,8 @@ function FunctionDetail() {
 
   return (
     <div>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
-        <Typography variant="h4" component="h1">
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3, alignItems: 'center' }}>
+        <Typography variant="h5" component="h1" sx={{ fontWeight: 500 }}>
           Function: {name}
         </Typography>
         <Box sx={{ display: 'flex', gap: 1 }}>
@@ -354,6 +354,7 @@ function FunctionDetail() {
             startIcon={<RefreshIcon />}
             onClick={handleRefresh}
             disabled={actionInProgress}
+            sx={{ textTransform: 'none', borderRadius: '4px' }}
           >
             Refresh
           </Button>
@@ -362,6 +363,7 @@ function FunctionDetail() {
             onClick={toggleAutoRefresh}
             color={autoRefreshEnabled ? "success" : "inherit"}
             startIcon={autoRefreshEnabled ? <AutorenewIcon /> : <PauseIcon />}
+            sx={{ textTransform: 'none', borderRadius: '4px' }}
           >
             {autoRefreshEnabled ? "Auto" : "Manual"}
           </Button>
@@ -372,6 +374,7 @@ function FunctionDetail() {
               startIcon={actionInProgress ? <CircularProgress size={20} color="inherit" /> : <StopIcon />}
               onClick={handleStopFunction}
               disabled={actionInProgress}
+              sx={{ textTransform: 'none', borderRadius: '4px' }}
             >
               Stop
             </Button>
@@ -382,6 +385,7 @@ function FunctionDetail() {
               startIcon={actionInProgress ? <CircularProgress size={20} color="inherit" /> : <StartIcon />}
               onClick={handleStartFunction}
               disabled={actionInProgress}
+              sx={{ textTransform: 'none', borderRadius: '4px' }}
             >
               Start
             </Button>
@@ -390,12 +394,14 @@ function FunctionDetail() {
       </Box>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 3 }}>
-          {error}
-        </Alert>
+        <Box sx={{ mb: 3 }}>
+          <Alert severity="error" sx={{ borderRadius: '4px' }}>
+            {error}
+          </Alert>
+        </Box>
       )}
 
-      <Card sx={{ mb: 3 }}>
+      <Card sx={{ mb: 3, borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
         <CardContent>
           <Grid container spacing={4}>
             <Grid item xs={12} md={6}>
@@ -408,16 +414,24 @@ function FunctionDetail() {
                   color={functionData?.running ? 'success' : 'default'}
                   size="small"
                   sx={{
+                    height: '24px',
+                    borderRadius: '12px',
                     ...(functionData?.running && {
+                      bgcolor: 'rgba(76, 175, 80, 0.1)',
+                      color: '#2e7d32',
                       animation: 'pulse 2s infinite',
                       '@keyframes pulse': {
                         '0%': { boxShadow: '0 0 0 0 rgba(76, 175, 80, 0.4)' },
                         '70%': { boxShadow: '0 0 0 6px rgba(76, 175, 80, 0)' },
                         '100%': { boxShadow: '0 0 0 0 rgba(76, 175, 80, 0)' }
                       }
+                    }),
+                    ...(!functionData?.running && {
+                      bgcolor: 'rgba(0, 0, 0, 0.08)',
+                      color: 'rgba(0, 0, 0, 0.6)'
                     })
                   }}
-                  icon={actionInProgress ? <CircularProgress size={16} color="inherit" /> : undefined}
+                  icon={actionInProgress ? <CircularProgress size={14} color="inherit" /> : undefined}
                 />
               </Box>
               
@@ -452,7 +466,7 @@ function FunctionDetail() {
         </CardContent>
       </Card>
 
-      <Paper sx={{ mb: 3 }}>
+      <Paper sx={{ mb: 3, borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
         <Tabs value={tabValue} onChange={handleTabChange} aria-label="function tabs">
           <Tab label="Test" />
           <Tab label="Logs" />
@@ -460,7 +474,7 @@ function FunctionDetail() {
         </Tabs>
 
         <TabPanel value={tabValue} index={0}>
-          <Typography variant="h6" gutterBottom>
+          <Typography variant="h6" gutterBottom sx={{ fontWeight: 500 }}>
             Test Function
           </Typography>
 
@@ -476,6 +490,7 @@ function FunctionDetail() {
                     variant={testMethod === 'GET' ? 'contained' : 'outlined'}
                     onClick={() => setTestMethod('GET')}
                     size="small"
+                    sx={{ textTransform: 'none', borderRadius: '4px' }}
                   >
                     GET
                   </Button>
@@ -483,6 +498,7 @@ function FunctionDetail() {
                     variant={testMethod === 'POST' ? 'contained' : 'outlined'}
                     onClick={() => setTestMethod('POST')}
                     size="small"
+                    sx={{ textTransform: 'none', borderRadius: '4px' }}
                   >
                     POST
                   </Button>
@@ -490,6 +506,7 @@ function FunctionDetail() {
                     variant={testMethod === 'PUT' ? 'contained' : 'outlined'}
                     onClick={() => setTestMethod('PUT')}
                     size="small"
+                    sx={{ textTransform: 'none', borderRadius: '4px' }}
                   >
                     PUT
                   </Button>
@@ -497,6 +514,7 @@ function FunctionDetail() {
                     variant={testMethod === 'DELETE' ? 'contained' : 'outlined'}
                     onClick={() => setTestMethod('DELETE')}
                     size="small"
+                    sx={{ textTransform: 'none', borderRadius: '4px' }}
                   >
                     DELETE
                   </Button>
@@ -507,23 +525,26 @@ function FunctionDetail() {
                   value={testEndpoint}
                   onChange={(e) => setTestEndpoint(e.target.value)}
                   fullWidth
-                  variant="outlined"
                   margin="normal"
-                  placeholder="/chat"
-                  helperText="Specify the endpoint path (e.g., /chat)"
+                  variant="outlined"
+                  placeholder="/"
+                  sx={{ '& .MuiOutlinedInput-root': { borderRadius: '4px' } }}
+                  InputProps={{
+                    startAdornment: <Typography variant="body2" sx={{ mr: 1, color: 'text.secondary' }}>/function/{name}</Typography>
+                  }}
                 />
-                
                 {testMethod !== 'GET' && (
                   <TextField
-                    label="Request Payload (JSON)"
-                    multiline
-                    rows={4}
+                    label="Payload (JSON)"
                     value={testPayload}
                     onChange={(e) => setTestPayload(e.target.value)}
                     fullWidth
+                    margin="normal"
                     variant="outlined"
-                    sx={{ mb: 2 }}
+                    multiline
+                    rows={4}
                     placeholder='{"key": "value"}'
+                    sx={{ '& .MuiOutlinedInput-root': { borderRadius: '4px' } }}
                   />
                 )}
                 
@@ -531,9 +552,11 @@ function FunctionDetail() {
                   <Button
                     variant="contained"
                     color="primary"
+                    endIcon={<SendIcon />}
                     onClick={handleTestFunction}
                     disabled={testLoading || !functionData?.running}
-                    startIcon={testLoading ? <CircularProgress size={20} /> : <SendIcon />}
+                    fullWidth
+                    sx={{ textTransform: 'none', borderRadius: '4px' }}
                   >
                     {testLoading ? 'Sending...' : 'Send Request'}
                   </Button>
@@ -547,9 +570,11 @@ function FunctionDetail() {
               </Typography>
               
               {testError && (
-                <Alert severity="error" sx={{ mb: 2 }}>
-                  {testError}
-                </Alert>
+                <Box sx={{ mt: 2 }}>
+                  <Alert severity="error" sx={{ borderRadius: '4px' }}>
+                    {testError}
+                  </Alert>
+                </Box>
               )}
               
               {testLoading ? (
@@ -602,11 +627,11 @@ function FunctionDetail() {
         </TabPanel>
 
         <TabPanel value={tabValue} index={1}>
-          <Typography variant="h6" gutterBottom>
+          <Typography variant="h6" gutterBottom sx={{ fontWeight: 500 }}>
             Function Logs
           </Typography>
           
-          <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.paper', fontFamily: 'monospace', fontSize: '0.875rem', height: 300, overflowY: 'auto' }}>
+          <Paper variant="outlined" sx={{ p: 2, mt: 3, borderRadius: '8px', bgcolor: 'background.paper', fontFamily: 'monospace', fontSize: '0.875rem', height: 300, overflowY: 'auto' }}>
             <Typography variant="body2" color="textSecondary" sx={{ textAlign: 'center' }}>
               {functionData?.running 
                 ? 'Logs will be available soon...' 
@@ -616,8 +641,8 @@ function FunctionDetail() {
         </TabPanel>
 
         <TabPanel value={tabValue} index={2}>
-          <Typography variant="h6" gutterBottom>
-            Function Configuration
+          <Typography variant="h6" gutterBottom sx={{ fontWeight: 500 }}>
+            Configuration
           </Typography>
           
           <Grid container spacing={3}>

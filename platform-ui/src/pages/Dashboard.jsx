@@ -298,7 +298,8 @@ function Dashboard() {
             label={isActionInProgress === 'starting' ? 'Starting...' : 'Stopping...'} 
             color={isActionInProgress === 'starting' ? 'warning' : 'error'}
             size="small"
-            icon={<CircularProgress size={16} color="inherit" />}
+            icon={<CircularProgress size={14} color="inherit" />}
+            sx={{ height: '24px', borderRadius: '12px' }}
           />
         ) : (
           <Chip 
@@ -306,13 +307,21 @@ function Dashboard() {
             color={running ? 'success' : 'default'}
             size="small"
             sx={{
+              height: '24px',
+              borderRadius: '12px',
               ...(running && {
+                bgcolor: 'rgba(76, 175, 80, 0.1)',
+                color: '#2e7d32',
                 animation: 'pulse 2s infinite',
                 '@keyframes pulse': {
                   '0%': { boxShadow: '0 0 0 0 rgba(76, 175, 80, 0.4)' },
                   '70%': { boxShadow: '0 0 0 6px rgba(76, 175, 80, 0)' },
                   '100%': { boxShadow: '0 0 0 0 rgba(76, 175, 80, 0)' }
                 }
+              }),
+              ...(!running && {
+                bgcolor: 'rgba(0, 0, 0, 0.08)',
+                color: 'rgba(0, 0, 0, 0.6)'
               })
             }}
           />
@@ -323,8 +332,8 @@ function Dashboard() {
 
   return (
     <div>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
-        <Typography variant="h4" component="h1">
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3, alignItems: 'center' }}>
+        <Typography variant="h5" component="h1" sx={{ fontWeight: 500 }}>
           Functions Dashboard
         </Typography>
         <Box>
@@ -333,7 +342,7 @@ function Dashboard() {
             color="primary"
             component={Link}
             to="/deploy"
-            sx={{ mr: 2 }}
+            sx={{ mr: 2, textTransform: 'none', borderRadius: '4px' }}
           >
             Deploy New Function
           </Button>
@@ -342,7 +351,7 @@ function Dashboard() {
             startIcon={<RefreshIcon />}
             onClick={handleRefresh}
             disabled={loading}
-            sx={{ mr: 1 }}
+            sx={{ mr: 1, textTransform: 'none', borderRadius: '4px' }}
           >
             Refresh
           </Button>
@@ -350,8 +359,9 @@ function Dashboard() {
             variant="outlined"
             color={autoRefreshEnabled ? "success" : "primary"}
             onClick={toggleAutoRefresh}
+            sx={{ textTransform: 'none', borderRadius: '4px' }}
           >
-            {autoRefreshEnabled ? "Auto-refresh: ON" : "Auto-refresh: OFF"}
+            Auto-refresh: {autoRefreshEnabled ? "ON" : "OFF"}
           </Button>
         </Box>
       </Box>
@@ -369,7 +379,7 @@ function Dashboard() {
           <CircularProgress />
         </Box>
       ) : Object.keys(functions).length === 0 ? (
-        <Card>
+        <Card sx={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
           <CardContent>
             <Box sx={{ textAlign: 'center', py: 4 }}>
               <Typography variant="h6" color="textSecondary" gutterBottom>
@@ -380,7 +390,7 @@ function Dashboard() {
                 color="primary"
                 component={Link}
                 to="/deploy"
-                sx={{ mt: 2 }}
+                sx={{ mt: 2, textTransform: 'none', borderRadius: '4px' }}
               >
                 Deploy Your First Function
               </Button>
@@ -388,19 +398,19 @@ function Dashboard() {
           </CardContent>
         </Card>
       ) : (
-        <TableContainer component={Paper}>
+        <TableContainer component={Paper} sx={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', mb: 4 }}>
           <Table>
-            <TableHead>
+            <TableHead sx={{ backgroundColor: '#f5f5f5' }}>
               <TableRow>
-                <TableCell>Function Name</TableCell>
-                <TableCell>Status</TableCell>
-                <TableCell>Endpoint</TableCell>
-                <TableCell align="right">Actions</TableCell>
+                <TableCell sx={{ fontWeight: 'bold' }}>Function Name</TableCell>
+                <TableCell sx={{ fontWeight: 'bold' }}>Status</TableCell>
+                <TableCell sx={{ fontWeight: 'bold' }}>Endpoint</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 'bold' }}>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {Object.entries(functions).map(([name, func]) => (
-                <TableRow key={name}>
+                <TableRow key={name} hover>
                   <TableCell>
                     <Link to={`/function/${name}`} style={{ textDecoration: 'none', color: 'inherit' }}>
                       <Typography variant="body1" sx={{ fontWeight: 'medium' }}>
@@ -412,7 +422,7 @@ function Dashboard() {
                     <StatusChip running={func.running} functionName={name} />
                   </TableCell>
                   <TableCell>
-                    <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                    <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
                       /function/{name}
                     </Typography>
                   </TableCell>
@@ -422,8 +432,10 @@ function Dashboard() {
                       component={Link}
                       to={`/function/${name}`}
                       title="View Details"
+                      size="small"
+                      sx={{ mx: 0.5 }}
                     >
-                      <InvokeIcon />
+                      <InvokeIcon fontSize="small" />
                     </IconButton>
                     {func.running ? (
                       <IconButton
@@ -431,10 +443,12 @@ function Dashboard() {
                         onClick={() => handleStopFunction(name)}
                         title="Stop Function"
                         disabled={!!actionInProgress[name]}
+                        size="small"
+                        sx={{ mx: 0.5 }}
                       >
                         {actionInProgress[name] === 'stopping' ?
-                          <CircularProgress size={24} color="inherit" /> :
-                          <StopIcon />}
+                          <CircularProgress size={20} color="inherit" /> :
+                          <StopIcon fontSize="small" />}
                       </IconButton>
                     ) : (
                       <IconButton
@@ -442,20 +456,24 @@ function Dashboard() {
                         onClick={() => handleStartFunction(name)}
                         title="Start Function"
                         disabled={!!actionInProgress[name]}
+                        size="small"
+                        sx={{ mx: 0.5 }}
                       >
                         {actionInProgress[name] === 'starting' ?
-                          <CircularProgress size={24} color="inherit" /> :
-                          <StartIcon />}
+                          <CircularProgress size={20} color="inherit" /> :
+                          <StartIcon fontSize="small" />}
                       </IconButton>
                     )}
                     <IconButton
-                      color={deleteConfirmation === name ? "error" : "secondary"}
+                      color={deleteConfirmation === name ? "error" : "default"}
                       onClick={() => handleDeleteFunction(name)}
                       title={deleteConfirmation === name ? "Click again to confirm deletion" : "Delete Function"}
                       disabled={!!actionInProgress[name]}
+                      size="small"
                       sx={{ 
+                        mx: 0.5,
                         '&:hover': { 
-                          backgroundColor: deleteConfirmation === name ? 'rgba(211, 47, 47, 0.1)' : 'rgba(156, 39, 176, 0.1)' 
+                          backgroundColor: deleteConfirmation === name ? 'rgba(211, 47, 47, 0.1)' : 'rgba(0, 0, 0, 0.04)' 
                         },
                         ...(deleteConfirmation === name && {
                           animation: 'pulse 1s infinite',
@@ -468,8 +486,8 @@ function Dashboard() {
                       }}
                     >
                       {actionInProgress[name] === 'deleting' ?
-                        <CircularProgress size={24} color="inherit" /> :
-                        <DeleteIcon />}
+                        <CircularProgress size={20} color="inherit" /> :
+                        <DeleteIcon fontSize="small" />}
                     </IconButton>
                   </TableCell>
                 </TableRow>
@@ -479,69 +497,81 @@ function Dashboard() {
         </TableContainer>
       )}
 
-      <Grid container spacing={3} sx={{ mt: 4 }}>
-        <Grid item xs={12} md={6}>
-          <Card>
+      <Typography variant="h6" sx={{ mt: 4, mb: 2, fontWeight: 500 }}>
+        Platform Status
+      </Typography>
+      <Grid container spacing={3}>
+        <Grid item xs={12} md={4}>
+          <Card sx={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
             <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Platform Status
+              <Typography variant="body2" color="textSecondary" gutterBottom>
+                Functions Deployed
               </Typography>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
-                <div>
-                  <Box sx={{ mr: 2 }}>
-                    <Typography variant="body2" color="textSecondary">
-                      Deployed     
-                    </Typography>
-                  </Box>
-                  <Typography variant="h4">
-                    {Object.keys(functions).length}
-                  </Typography>
-                </div>
-                <div>
-                  <Box sx={{ mr: 2 }}>
-                    <Typography variant="body2" color="textSecondary">
-                      Running
-                    </Typography>
-                  </Box>
-                  <Typography variant="h4">
-                    {Object.values(functions).filter(f => f.running).length}
-                  </Typography>
-                </div>
-                <div>
-                  <Box sx={{ mr: 2 }}>
-                    <Typography variant="body2" color="textSecondary">
-                      Stopped
-                    </Typography>
-                  </Box>
-                  <Typography variant="h4">
-                    {Object.values(functions).filter(f => !f.running).length}
-                  </Typography>
-                </div>
-              </Box>
+              <Typography variant="h4" sx={{ fontWeight: 500 }}>
+                {Object.keys(functions).length}
+              </Typography>
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} md={6}>
-          <Card>
+        <Grid item xs={12} md={4}>
+          <Card sx={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
             <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Quick Actions
+              <Typography variant="body2" color="textSecondary" gutterBottom>
+                Functions Running
               </Typography>
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 2 }}>
-                <Button variant="outlined" component={Link} to="/deploy">
-                  Deploy Function
-                </Button>
-                <Button variant="outlined" component={Link} to="/logs">
-                  View Logs
-                </Button>
-                <Button variant="outlined" component={Link} to="/settings">
-                  Settings
-                </Button>
-              </Box>
+              <Typography variant="h4" sx={{ fontWeight: 500, color: '#4caf50' }}>
+                {Object.values(functions).filter(f => f.running).length}
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid item xs={12} md={4}>
+          <Card sx={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+            <CardContent>
+              <Typography variant="body2" color="textSecondary" gutterBottom>
+                Functions Stopped
+              </Typography>
+              <Typography variant="h4" sx={{ fontWeight: 500, color: '#9e9e9e' }}>
+                {Object.values(functions).filter(f => !f.running).length}
+              </Typography>
             </CardContent>
           </Card>
         </Grid>
       </Grid>
+      
+      <Typography variant="h6" sx={{ mt: 4, mb: 2, fontWeight: 500 }}>
+        Quick Actions
+      </Typography>
+      <Card sx={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+            <Button 
+              variant="outlined" 
+              component={Link} 
+              to="/deploy"
+              sx={{ textTransform: 'none', borderRadius: '4px' }}
+            >
+              Deploy Function
+            </Button>
+            <Button 
+              variant="outlined" 
+              component={Link} 
+              to="/logs"
+              sx={{ textTransform: 'none', borderRadius: '4px' }}
+            >
+              View Logs
+            </Button>
+            <Button 
+              variant="outlined" 
+              component={Link} 
+              to="/settings"
+              sx={{ textTransform: 'none', borderRadius: '4px' }}
+            >
+              Settings
+            </Button>
+          </Box>
+        </CardContent>
+      </Card>
     </div>
   );
 }
