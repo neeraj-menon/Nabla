@@ -193,18 +193,37 @@ func startContainer(function *Function) error {
 
 // Stop a function container
 func stopContainer(function *Function) error {
+	// First check if the container is actually running
 	if function.Container == "" {
+		function.Running = false
 		return nil
 	}
 	
+	// Verify if the container is actually running
+	if !isContainerRunning(function.Container) {
+		log.Printf("Container %s for function %s is not running, updating status", 
+			function.Container, function.Name)
+		function.Container = ""
+		function.Running = false
+		return nil
+	}
+	
+	// Stop the container
 	cmd := exec.Command("docker", "stop", function.Container)
-	if err := cmd.Run(); err != nil {
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Error stopping container %s: %v\nOutput: %s", 
+			function.Container, err, string(output))
 		return err
 	}
 	
+	// Remove the container
 	cmd = exec.Command("docker", "rm", function.Container)
-	if err := cmd.Run(); err != nil {
-		return err
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Error removing container %s: %v\nOutput: %s", 
+			function.Container, err, string(output))
+		// Don't return error here, as the container is already stopped
 	}
 	
 	function.Container = ""
@@ -346,11 +365,44 @@ func main() {
 			return
 		}
 		
+		// Create a copy of the functions map to avoid long lock times
 		mutex.RLock()
-		defer mutex.RUnlock()
+		functionsCopy := make(map[string]*Function)
+		for name, fn := range functions {
+			// Create a deep copy of each function
+			fnCopy := *fn
+			functionsCopy[name] = &fnCopy
+		}
+		mutex.RUnlock()
+		
+		// Verify the status of each function's container
+		for _, fn := range functionsCopy {
+			if fn.Container != "" {
+				actuallyRunning := isContainerRunning(fn.Container)
+				
+				// If the status has changed, update the original function in the map
+				if fn.Running != actuallyRunning {
+					log.Printf("Function %s container status mismatch: recorded=%v, actual=%v", 
+						fn.Name, fn.Running, actuallyRunning)
+					
+					// Update the copy
+					fn.Running = actuallyRunning
+					
+					// Also update the original
+					mutex.Lock()
+					if original, exists := functions[fn.Name]; exists {
+						original.Running = actuallyRunning
+						if !actuallyRunning {
+							original.Container = ""
+						}
+					}
+					mutex.Unlock()
+				}
+			}
+		}
 		
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(functions)
+		json.NewEncoder(w).Encode(functionsCopy)
 	})
 	
 	// Start function handler
@@ -379,22 +431,40 @@ func main() {
 			return
 		}
 		
-		if function.Running {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]string{
-				"message": fmt.Sprintf("Function '%s' is already running", functionName),
-			})
-			return
+		// Check if the container is already running
+		if function.Container != "" {
+			if isContainerRunning(function.Container) {
+				function.Running = true
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]string{
+					"message": fmt.Sprintf("Function '%s' is already running", functionName),
+				})
+				return
+			} else {
+				// Container exists but is not running, clear it
+				function.Container = ""
+				function.Running = false
+			}
 		}
 		
+		// Start the container
 		if err := startContainer(function); err != nil {
 			http.Error(w, fmt.Sprintf("Failed to start function: %v", err), http.StatusInternalServerError)
 			return
 		}
 		
+		// Verify the container is actually running
+		if !isContainerRunning(function.Container) {
+			function.Running = false
+			http.Error(w, "Container started but is not running", http.StatusInternalServerError)
+			return
+		}
+		
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
+		json.NewEncoder(w).Encode(map[string]interface{}{
 			"message": fmt.Sprintf("Function '%s' started successfully", functionName),
+			"running": true,
+			"container": function.Container,
 		})
 	})
 	
@@ -424,7 +494,10 @@ func main() {
 			return
 		}
 		
-		if !function.Running {
+		// Check if the function is already stopped
+		if function.Container == "" || !isContainerRunning(function.Container) {
+			function.Running = false
+			function.Container = ""
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]string{
 				"message": fmt.Sprintf("Function '%s' is not running", functionName),
@@ -432,14 +505,25 @@ func main() {
 			return
 		}
 		
+		// Stop the container
 		if err := stopContainer(function); err != nil {
 			http.Error(w, fmt.Sprintf("Failed to stop function: %v", err), http.StatusInternalServerError)
 			return
 		}
 		
+		// Verify the container is actually stopped
+		if isContainerRunning(function.Container) {
+			http.Error(w, "Failed to stop container, it is still running", http.StatusInternalServerError)
+			return
+		}
+		
+		function.Running = false
+		function.Container = ""
+		
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
+		json.NewEncoder(w).Encode(map[string]interface{}{
 			"message": fmt.Sprintf("Function '%s' stopped successfully", functionName),
+			"running": false,
 		})
 	})
 	

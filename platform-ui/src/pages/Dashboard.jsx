@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   Grid, 
@@ -33,59 +33,189 @@ function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [actionInProgress, setActionInProgress] = useState({});
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
 
-  // Load functions on component mount
+  // Function to fetch all functions
+  const fetchFunctions = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await functionService.listFunctions();
+      setFunctions(data);
+      setError(null);
+    } catch (err) {
+      setError('Failed to load functions. Please try again.');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // Load functions on component mount and when refresh is triggered
   useEffect(() => {
-    const fetchFunctions = async () => {
-      try {
-        setLoading(true);
-        const data = await functionService.listFunctions();
-        setFunctions(data);
-        setError(null);
-      } catch (err) {
-        setError('Failed to load functions. Please try again.');
-        console.error(err);
-      } finally {
-        setLoading(false);
+    fetchFunctions();
+  }, [fetchFunctions, refreshTrigger]);
+  
+  // Auto-refresh functions every 5 seconds
+  useEffect(() => {
+    let intervalId;
+    
+    if (autoRefreshEnabled) {
+      intervalId = setInterval(() => {
+        fetchFunctions();
+      }, 5000);
+    }
+    
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
       }
     };
-
-    fetchFunctions();
-  }, [refreshTrigger]);
+  }, [autoRefreshEnabled, fetchFunctions]);
 
   // Handle refresh button click
   const handleRefresh = () => {
-    setRefreshTrigger(prev => prev + 1);
+    fetchFunctions();
+  };
+  
+  // Toggle auto-refresh
+  const toggleAutoRefresh = () => {
+    setAutoRefreshEnabled(prev => !prev);
   };
 
   // Handle start function
   const handleStartFunction = async (name) => {
     try {
+      // Set action in progress for this function
+      setActionInProgress(prev => ({ ...prev, [name]: 'starting' }));
+      
+      // Optimistically update UI
+      setFunctions(prev => ({
+        ...prev,
+        [name]: { ...prev[name], running: true }
+      }));
+      
+      // Start the function
       await functionService.startFunction(name);
-      handleRefresh();
+      
+      // Wait a moment for the container to fully start
+      setTimeout(() => {
+        // Verify the function status
+        verifyFunctionStatus(name);
+      }, 2000);
     } catch (err) {
-      setError(`Failed to start function ${name}`);
+      console.error(`Failed to start function ${name}:`, err);
+      setError(`Failed to start function ${name}: ${err.message || 'Unknown error'}`);
+      
+      // Revert optimistic update
+      setFunctions(prev => ({
+        ...prev,
+        [name]: { ...prev[name], running: false }
+      }));
+    } finally {
+      // Clear action in progress after a delay
+      setTimeout(() => {
+        setActionInProgress(prev => {
+          const newState = { ...prev };
+          delete newState[name];
+          return newState;
+        });
+      }, 1000);
     }
   };
 
   // Handle stop function
   const handleStopFunction = async (name) => {
     try {
+      // Set action in progress for this function
+      setActionInProgress(prev => ({ ...prev, [name]: 'stopping' }));
+      
+      // Optimistically update UI
+      setFunctions(prev => ({
+        ...prev,
+        [name]: { ...prev[name], running: false }
+      }));
+      
+      // Stop the function
       await functionService.stopFunction(name);
-      handleRefresh();
+      
+      // Wait a moment for the container to fully stop
+      setTimeout(() => {
+        // Verify the function status
+        verifyFunctionStatus(name);
+      }, 1000);
     } catch (err) {
-      setError(`Failed to stop function ${name}`);
+      console.error(`Failed to stop function ${name}:`, err);
+      setError(`Failed to stop function ${name}: ${err.message || 'Unknown error'}`);
+      
+      // Revert optimistic update
+      setFunctions(prev => ({
+        ...prev,
+        [name]: { ...prev[name], running: true }
+      }));
+    } finally {
+      // Clear action in progress after a delay
+      setTimeout(() => {
+        setActionInProgress(prev => {
+          const newState = { ...prev };
+          delete newState[name];
+          return newState;
+        });
+      }, 1000);
+    }
+  };
+  
+  // Verify function status
+  const verifyFunctionStatus = async (name) => {
+    try {
+      const status = await functionService.getFunctionStatus(name);
+      
+      // Update the function with the verified status
+      setFunctions(prev => ({
+        ...prev,
+        [name]: { 
+          ...prev[name], 
+          running: status.running,
+          container: status.container,
+          port: status.port
+        }
+      }));
+    } catch (err) {
+      console.error(`Failed to verify status for function ${name}:`, err);
     }
   };
 
   // Function status chip
-  const StatusChip = ({ running }) => {
+  const StatusChip = ({ running, functionName }) => {
+    const isActionInProgress = actionInProgress[functionName];
+    
     return (
-      <Chip 
-        label={running ? 'Running' : 'Stopped'} 
-        color={running ? 'success' : 'default'}
-        size="small"
-      />
+      <Box sx={{ display: 'flex', alignItems: 'center' }}>
+        {isActionInProgress ? (
+          <Chip 
+            label={isActionInProgress === 'starting' ? 'Starting...' : 'Stopping...'} 
+            color={isActionInProgress === 'starting' ? 'warning' : 'error'}
+            size="small"
+            icon={<CircularProgress size={16} color="inherit" />}
+          />
+        ) : (
+          <Chip 
+            label={running ? 'Running' : 'Stopped'} 
+            color={running ? 'success' : 'default'}
+            size="small"
+            sx={{
+              ...(running && {
+                animation: 'pulse 2s infinite',
+                '@keyframes pulse': {
+                  '0%': { boxShadow: '0 0 0 0 rgba(76, 175, 80, 0.4)' },
+                  '70%': { boxShadow: '0 0 0 6px rgba(76, 175, 80, 0)' },
+                  '100%': { boxShadow: '0 0 0 0 rgba(76, 175, 80, 0)' }
+                }
+              })
+            }}
+          />
+        )}
+      </Box>
     );
   };
 
@@ -96,30 +226,40 @@ function Dashboard() {
           Functions Dashboard
         </Typography>
         <Box>
-          <Button 
-            variant="contained" 
-            color="primary" 
-            component={Link} 
+          <Button
+            variant="contained"
+            color="primary"
+            component={Link}
             to="/deploy"
             sx={{ mr: 2 }}
           >
             Deploy New Function
           </Button>
-          <Button 
+          <Button
             variant="outlined"
             startIcon={<RefreshIcon />}
             onClick={handleRefresh}
             disabled={loading}
+            sx={{ mr: 1 }}
           >
             Refresh
+          </Button>
+          <Button
+            variant="outlined"
+            color={autoRefreshEnabled ? "success" : "primary"}
+            onClick={toggleAutoRefresh}
+          >
+            {autoRefreshEnabled ? "Auto-refresh: ON" : "Auto-refresh: OFF"}
           </Button>
         </Box>
       </Box>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 3 }}>
-          {error}
-        </Alert>
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="h6" color="error">
+            {error}
+          </Typography>
+        </Box>
       )}
 
       {loading ? (
@@ -133,10 +273,10 @@ function Dashboard() {
               <Typography variant="h6" color="textSecondary" gutterBottom>
                 No functions deployed yet
               </Typography>
-              <Button 
-                variant="contained" 
-                color="primary" 
-                component={Link} 
+              <Button
+                variant="contained"
+                color="primary"
+                component={Link}
                 to="/deploy"
                 sx={{ mt: 2 }}
               >
@@ -167,7 +307,7 @@ function Dashboard() {
                     </Link>
                   </TableCell>
                   <TableCell>
-                    <StatusChip running={func.running} />
+                    <StatusChip running={func.running} functionName={name} />
                   </TableCell>
                   <TableCell>
                     <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
@@ -175,8 +315,8 @@ function Dashboard() {
                     </Typography>
                   </TableCell>
                   <TableCell align="right">
-                    <IconButton 
-                      color="primary" 
+                    <IconButton
+                      color="primary"
                       component={Link}
                       to={`/function/${name}`}
                       title="View Details"
@@ -184,24 +324,30 @@ function Dashboard() {
                       <InvokeIcon />
                     </IconButton>
                     {func.running ? (
-                      <IconButton 
-                        color="error" 
+                      <IconButton
+                        color="error"
                         onClick={() => handleStopFunction(name)}
                         title="Stop Function"
+                        disabled={!!actionInProgress[name]}
                       >
-                        <StopIcon />
+                        {actionInProgress[name] === 'stopping' ?
+                          <CircularProgress size={24} color="inherit" /> :
+                          <StopIcon />}
                       </IconButton>
                     ) : (
-                      <IconButton 
-                        color="success" 
+                      <IconButton
+                        color="success"
                         onClick={() => handleStartFunction(name)}
                         title="Start Function"
+                        disabled={!!actionInProgress[name]}
                       >
-                        <StartIcon />
+                        {actionInProgress[name] === 'starting' ?
+                          <CircularProgress size={24} color="inherit" /> :
+                          <StartIcon />}
                       </IconButton>
                     )}
-                    <IconButton 
-                      color="error"
+                    <IconButton
+                      color="secondary"
                       title="Delete Function"
                     >
                       <DeleteIcon />

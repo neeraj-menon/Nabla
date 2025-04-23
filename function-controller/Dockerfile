@@ -8,7 +8,7 @@ COPY src/ .
 # Build the application
 RUN go mod init function-controller && \
     go mod tidy && \
-    go build -o function-controller controller.go
+    go build -o function-controller .
 
 # Use a smaller image for the final container
 FROM alpine:latest

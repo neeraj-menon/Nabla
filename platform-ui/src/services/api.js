@@ -21,7 +21,9 @@ export const functionService = {
   // Get all functions
   listFunctions: async () => {
     try {
-      const response = await api.get(`${API_URL}/list`);
+      // Use the function controller's list endpoint directly for more accurate status
+      const response = await api.get(`${CONTROLLER_URL}/list`);
+      console.debug('Function list response:', response.data);
       return response.data;
     } catch (error) {
       console.error('Error listing functions:', error);
@@ -95,6 +97,7 @@ export const functionService = {
   startFunction: async (name) => {
     try {
       const response = await api.post(`${CONTROLLER_URL}/start/${name}`);
+      console.debug(`Start function ${name} response:`, response.data);
       return response.data;
     } catch (error) {
       console.error(`Error starting function ${name}:`, error);
@@ -106,9 +109,22 @@ export const functionService = {
   stopFunction: async (name) => {
     try {
       const response = await api.post(`${CONTROLLER_URL}/stop/${name}`);
+      console.debug(`Stop function ${name} response:`, response.data);
       return response.data;
     } catch (error) {
       console.error(`Error stopping function ${name}:`, error);
+      throw error;
+    }
+  },
+  
+  // Get function status
+  getFunctionStatus: async (name) => {
+    try {
+      const response = await api.get(`${CONTROLLER_URL}/status/${name}`);
+      console.debug(`Status for function ${name}:`, response.data);
+      return response.data;
+    } catch (error) {
+      console.error(`Error getting status for function ${name}:`, error);
       throw error;
     }
   }
