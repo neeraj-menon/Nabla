@@ -46,15 +46,39 @@ export const functionService = {
   // Invoke a function
   invokeFunction: async (name, method = 'GET', data = {}) => {
     try {
+      console.debug(`Invoking function ${name} with method ${method}:`, data);
+      
+      // Set a longer timeout for function invocation
       const response = await api({
         method,
         url: `${API_URL}/function/${name}`,
-        data: method !== 'GET' ? data : undefined
+        data: method !== 'GET' ? data : undefined,
+        timeout: 10000, // 10 second timeout
+        validateStatus: status => true // Accept any status code to handle function errors
       });
-      return response.data;
+      
+      console.debug(`Function ${name} response:`, {
+        status: response.status,
+        headers: response.headers,
+        data: response.data
+      });
+      
+      // Return a more complete response object
+      return {
+        status: response.status,
+        headers: response.headers,
+        data: response.data
+      };
     } catch (error) {
       console.error(`Error invoking function ${name}:`, error);
-      throw error;
+      
+      // Return a structured error response
+      return {
+        status: error.response?.status || 500,
+        headers: error.response?.headers || {},
+        data: error.response?.data || { error: error.message },
+        error: true
+      };
     }
   },
   
@@ -117,12 +141,19 @@ export const functionService = {
     }
   },
   
-  // Get function status
+  // Get function status (using list endpoint to avoid CORS issues)
   getFunctionStatus: async (name) => {
     try {
-      const response = await api.get(`${CONTROLLER_URL}/status/${name}`);
-      console.debug(`Status for function ${name}:`, response.data);
-      return response.data;
+      // Use the list endpoint instead of status endpoint to avoid CORS issues
+      const response = await api.get(`${CONTROLLER_URL}/list`);
+      console.debug(`Got function list to check status for ${name}:`, response.data);
+      
+      // Find the function in the list
+      if (response.data && response.data[name]) {
+        return response.data[name];
+      } else {
+        throw new Error(`Function ${name} not found in list`);
+      }
     } catch (error) {
       console.error(`Error getting status for function ${name}:`, error);
       throw error;

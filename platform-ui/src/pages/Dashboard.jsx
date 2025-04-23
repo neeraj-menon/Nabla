@@ -165,21 +165,31 @@ function Dashboard() {
     }
   };
   
-  // Verify function status
+  // Verify function status using the list endpoint
   const verifyFunctionStatus = async (name) => {
     try {
-      const status = await functionService.getFunctionStatus(name);
+      // Get the full list of functions
+      const functions = await functionService.listFunctions();
+      console.debug('Got functions list for verification:', functions);
       
-      // Update the function with the verified status
-      setFunctions(prev => ({
-        ...prev,
-        [name]: { 
-          ...prev[name], 
-          running: status.running,
-          container: status.container,
-          port: status.port
-        }
-      }));
+      // Check if the function exists in the list
+      if (functions && functions[name]) {
+        const functionFromList = functions[name];
+        console.debug(`Found function ${name} in list with status:`, functionFromList.running);
+        
+        // Update with status from list
+        setFunctions(prev => ({
+          ...prev,
+          [name]: { 
+            ...prev[name], 
+            running: functionFromList.running,
+            container: functionFromList.container,
+            port: functionFromList.port
+          }
+        }));
+      } else {
+        console.debug(`Function ${name} not found in list`);
+      }
     } catch (err) {
       console.error(`Failed to verify status for function ${name}:`, err);
     }
