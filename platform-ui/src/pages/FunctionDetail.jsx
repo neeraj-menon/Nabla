@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box,
   Card,
@@ -15,7 +15,11 @@ import {
   CircularProgress,
   Alert,
   TextField,
-  IconButton
+  IconButton,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions
 } from '@mui/material';
 import {
   PlayArrow as StartIcon,
@@ -23,9 +27,14 @@ import {
   Refresh as RefreshIcon,
   Send as SendIcon,
   Autorenew as AutorenewIcon,
-  Pause as PauseIcon
+  Pause as PauseIcon,
+  Edit as EditIcon,
+  Save as SaveIcon,
+  Code as CodeIcon
 } from '@mui/icons-material';
 import { functionService } from '../services/api';
+import CodeEditor from '../components/CodeEditor/CodeEditor';
+import { createZipFromFiles, createFileFromZip } from '../utils/zipUtils';
 
 // Tab panel component
 function TabPanel(props) {
@@ -50,6 +59,7 @@ function TabPanel(props) {
 
 function FunctionDetail() {
   const { name } = useParams();
+  const navigate = useNavigate();
   const [functionData, setFunctionData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -67,6 +77,13 @@ function FunctionDetail() {
   // State for tracking actions in progress
   const [actionInProgress, setActionInProgress] = useState(false);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
+  
+  // State for edit function dialog
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editFiles, setEditFiles] = useState([]);
+  const [editLoading, setEditLoading] = useState(false);
+  const [editError, setEditError] = useState(null);
+  const [redeployLoading, setRedeployLoading] = useState(false);
   
   // Function to fetch function data
   const fetchFunctionData = useCallback(async () => {
@@ -295,6 +312,94 @@ function FunctionDetail() {
     }
   };
 
+  // Handle opening the edit dialog
+  const handleEditFunction = async () => {
+    try {
+      setEditLoading(true);
+      setEditError(null);
+      setEditFiles([]);
+      
+      // Get the function code as a zip file
+      const zipBlob = await functionService.getFunctionCode(name);
+      
+      // Create a file object from the blob
+      const file = new File([zipBlob], `${name}.zip`, { type: 'application/zip' });
+      
+      // Extract the files from the zip
+      const jsZip = await import('jszip');
+      const zip = new jsZip.default();
+      const contents = await zip.loadAsync(file);
+      
+      // Convert the zip contents to files array for the CodeEditor
+      const extractedFiles = [];
+      
+      // Process each file in the zip
+      const promises = [];
+      contents.forEach((relativePath, zipEntry) => {
+        if (!zipEntry.dir) {
+          const promise = zipEntry.async('string').then(content => {
+            extractedFiles.push({
+              name: relativePath,
+              content: content,
+              type: 'file'
+            });
+          });
+          promises.push(promise);
+        }
+      });
+      
+      // Wait for all files to be processed
+      await Promise.all(promises);
+      
+      // Set the files for editing
+      setEditFiles(extractedFiles);
+      
+      // Open the edit dialog
+      setEditDialogOpen(true);
+    } catch (err) {
+      console.error(`Error getting function code for editing: ${err.message}`);
+      setEditError(`Failed to get function code: ${err.message}`);
+    } finally {
+      setEditLoading(false);
+    }
+  };
+  
+  // Handle files change in the code editor
+  const handleEditFilesChange = (updatedFiles) => {
+    setEditFiles(updatedFiles);
+  };
+  
+  // Handle redeploying the function
+  const handleRedeployFunction = async () => {
+    try {
+      setRedeployLoading(true);
+      setEditError(null);
+      
+      // Create a zip file from the edited files
+      const zipBlob = await createZipFromFiles(editFiles);
+      const fileToUpload = createFileFromZip(zipBlob, `${name}.zip`);
+      
+      // Deploy the function with isRedeployment=true
+      await functionService.deployFunction(name, fileToUpload, true);
+      
+      // Close the edit dialog
+      setEditDialogOpen(false);
+      
+      // Show success message
+      setError(null);
+      
+      // Refresh the function data
+      setTimeout(() => {
+        handleRefresh();
+      }, 1000);
+    } catch (err) {
+      console.error(`Error redeploying function: ${err.message}`);
+      setEditError(`Failed to redeploy function: ${err.message}`);
+    } finally {
+      setRedeployLoading(false);
+    }
+  };
+
   // Handle test function
   const handleTestFunction = async () => {
     try {
@@ -344,6 +449,51 @@ function FunctionDetail() {
 
   return (
     <div>
+      {/* Edit Function Dialog */}
+      <Dialog
+        open={editDialogOpen}
+        onClose={() => setEditDialogOpen(false)}
+        maxWidth="lg"
+        fullWidth
+      >
+        <DialogTitle>
+          Edit Function: {name}
+        </DialogTitle>
+        <DialogContent>
+          {editError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {editError}
+            </Alert>
+          )}
+          <Typography variant="body2" color="textSecondary" sx={{ mb: 2 }}>
+            Edit your function code below. You can add, modify, or delete files as needed.
+            After making your changes, click "Save & Redeploy" to update your function.
+          </Typography>
+          <Box sx={{ height: '60vh', mb: 2 }}>
+            <CodeEditor files={editFiles} onFilesChange={handleEditFilesChange} />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => setEditDialogOpen(false)} 
+            disabled={redeployLoading}
+            sx={{ textTransform: 'none' }}
+          >
+            Cancel
+          </Button>
+          <Button 
+            variant="contained" 
+            color="primary" 
+            onClick={handleRedeployFunction}
+            disabled={redeployLoading}
+            startIcon={redeployLoading ? <CircularProgress size={20} color="inherit" /> : <SaveIcon />}
+            sx={{ textTransform: 'none' }}
+          >
+            Save & Redeploy
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3, alignItems: 'center' }}>
         <Typography variant="h5" component="h1" sx={{ fontWeight: 500 }}>
           Function: {name}
@@ -367,6 +517,18 @@ function FunctionDetail() {
           >
             {autoRefreshEnabled ? "Auto" : "Manual"}
           </Button>
+          {!functionData?.running && (
+            <Button
+              variant="outlined"
+              color="primary"
+              startIcon={editLoading ? <CircularProgress size={20} color="inherit" /> : <EditIcon />}
+              onClick={handleEditFunction}
+              disabled={actionInProgress || editLoading}
+              sx={{ textTransform: 'none', borderRadius: '4px' }}
+            >
+              Edit
+            </Button>
+          )}
           {functionData?.running ? (
             <Button
               variant="contained"

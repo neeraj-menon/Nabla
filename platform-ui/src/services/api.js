@@ -89,8 +89,31 @@ export const functionService = {
     }
   },
   
+  // Get function code as a zip file
+  getFunctionCode: async (name) => {
+    try {
+      console.debug(`Getting code for function ${name}`);
+      
+      // Use axios to get the file with responseType blob
+      const response = await axios({
+        method: 'GET',
+        url: `${BUILDER_URL}/get-function-code/${name}`,
+        responseType: 'blob',
+        headers: {
+          'Authorization': `Bearer ${AUTH_TOKEN}`
+        }
+      });
+      
+      // Return the blob directly
+      return response.data;
+    } catch (error) {
+      console.error(`Error getting function code for ${name}:`, error);
+      throw error;
+    }
+  },
+  
   // Deploy a function (upload code)
-  deployFunction: async (name, fileData) => {
+  deployFunction: async (name, fileData, isRedeployment = false) => {
     try {
       const formData = new FormData();
       formData.append('file', fileData);
@@ -104,13 +127,17 @@ export const functionService = {
         }
       });
       
-      // Register with API Gateway
-      await api.post(`${API_URL}/register`, {
-        name: name,
-        endpoint: `http://function-controller:8081`
-      });
+      // If this is a redeployment, we don't need to register with API Gateway
+      // since the function is already registered
+      if (!isRedeployment) {
+        // Register with API Gateway
+        await api.post(`${API_URL}/register`, {
+          name: name,
+          endpoint: `http://function-controller:8081`
+        });
+      }
       
-      // Register with Function Controller
+      // Always register with Function Controller to update the image
       await api.post(`${CONTROLLER_URL}/register`, {
         name: name,
         image: response.data.image,

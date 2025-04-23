@@ -6,7 +6,7 @@ import tempfile
 import zipfile
 import subprocess
 import logging
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 
 # Configure logging
@@ -154,6 +154,72 @@ def build_function():
             "image": image_name,
             "runtime": runtime
         }), 201
+
+@app.route('/get-function-code/<function_name>', methods=['GET'])
+def get_function_code(function_name):
+    """Retrieve the source code for an existing function"""
+    logger.info(f"Retrieving source code for function: {function_name}")
+    
+    # Base registry URL (for MVP, using local Docker registry)
+    registry_url = os.environ.get('REGISTRY_URL', 'localhost:5001')
+    image_name = f"{registry_url}/{function_name}:latest"
+    
+    # Create a temporary directory for extracting the code
+    with tempfile.TemporaryDirectory() as temp_dir:
+        try:
+            # Create a container from the image without running it
+            container_id = subprocess.check_output(
+                ["docker", "create", image_name],
+                universal_newlines=True
+            ).strip()
+            
+            logger.info(f"Created temporary container {container_id} from image {image_name}")
+            
+            try:
+                # Copy the source code from the container to the temp directory
+                # We know the source code is in /app in the container based on our Dockerfiles
+                subprocess.run(
+                    ["docker", "cp", f"{container_id}:/app/.", temp_dir],
+                    check=True
+                )
+                
+                logger.info(f"Copied source code from container to {temp_dir}")
+                
+                # Create a zip file containing all the source code
+                zip_path = os.path.join(temp_dir, f"{function_name}.zip")
+                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                    for root, _, files in os.walk(temp_dir):
+                        for file in files:
+                            # Skip the zip file itself
+                            if file == f"{function_name}.zip":
+                                continue
+                                
+                            file_path = os.path.join(root, file)
+                            # Make the path relative to temp_dir
+                            arcname = os.path.relpath(file_path, temp_dir)
+                            zipf.write(file_path, arcname)
+                
+                logger.info(f"Created zip file at {zip_path}")
+                
+                # Return the zip file
+                return send_file(
+                    zip_path,
+                    mimetype='application/zip',
+                    as_attachment=True,
+                    download_name=f"{function_name}.zip"
+                )
+                
+            finally:
+                # Clean up the container
+                subprocess.run(["docker", "rm", container_id], check=True)
+                logger.info(f"Removed temporary container {container_id}")
+                
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Error retrieving function code: {e}")
+            return jsonify({"error": f"Failed to retrieve function code: {str(e)}"}), 500
+        except Exception as e:
+            logger.error(f"Unexpected error: {e}")
+            return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
 
 if __name__ == '__main__':
     # Create runtime directories if they don't exist
