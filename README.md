@@ -20,6 +20,10 @@ A lightweight serverless platform for running HTTP functions with basic authenti
 
 ## Getting Started
 
+### 1. CLI
+
+Follow these steps to use the CLI for function development and management:
+
 1. Install the CLI:
    ```
    cd cli
@@ -45,6 +49,19 @@ A lightweight serverless platform for running HTTP functions with basic authenti
    ```
    curl -H "Authorization: Bearer YOUR_TOKEN" http://localhost:8080/function/hello
    ```
+
+### 2. WEB UI
+
+To use the web interface for deploying and managing functions:
+
+1. Start the platform (from the project root):
+   ```
+   docker compose up --build
+   ```
+
+2. Open your browser and go to [http://localhost:3000](http://localhost:3000) (or the port specified in your docker-compose file) to access the web dashboard.
+
+No CLI steps are required for the Web UI—everything can be managed visually from the dashboard.
 
 ## Development
 
