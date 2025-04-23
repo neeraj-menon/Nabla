@@ -59,6 +59,7 @@ function FunctionDetail() {
   // For testing function
   const [testMethod, setTestMethod] = useState('GET');
   const [testPayload, setTestPayload] = useState('');
+  const [testEndpoint, setTestEndpoint] = useState('/chat');
   const [testResponse, setTestResponse] = useState(null);
   const [testLoading, setTestLoading] = useState(false);
   const [testError, setTestError] = useState(null);
@@ -312,10 +313,10 @@ function FunctionDetail() {
         }
       }
       
-      console.debug(`Sending ${testMethod} request to function ${name}:`, payload);
+      console.debug(`Sending ${testMethod} request to function ${name} at endpoint ${testEndpoint}:`, payload);
       
       // Invoke the function and get the response
-      const response = await functionService.invokeFunction(name, testMethod, payload);
+      const response = await functionService.invokeFunction(name, testMethod, payload, testEndpoint);
       console.debug('Function response received:', response);
       
       // Check if the response has an error flag
@@ -500,6 +501,17 @@ function FunctionDetail() {
                     DELETE
                   </Button>
                 </Box>
+                
+                <TextField
+                  label="Endpoint"
+                  value={testEndpoint}
+                  onChange={(e) => setTestEndpoint(e.target.value)}
+                  fullWidth
+                  variant="outlined"
+                  margin="normal"
+                  placeholder="/chat"
+                  helperText="Specify the endpoint path (e.g., /chat)"
+                />
                 
                 {testMethod !== 'GET' && (
                   <TextField

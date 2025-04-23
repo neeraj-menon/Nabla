@@ -44,14 +44,21 @@ export const functionService = {
   },
   
   // Invoke a function
-  invokeFunction: async (name, method = 'GET', data = {}) => {
+  invokeFunction: async (name, method = 'GET', data = {}, endpoint = '') => {
     try {
-      console.debug(`Invoking function ${name} with method ${method}:`, data);
+      console.debug(`Invoking function ${name} with method ${method} at endpoint ${endpoint}:`, data);
+      
+      // Prepare the URL with the endpoint if provided
+      const functionUrl = endpoint 
+        ? `${API_URL}/function/${name}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`
+        : `${API_URL}/function/${name}`;
+      
+      console.debug('Function request URL:', functionUrl);
       
       // Set a longer timeout for function invocation
       const response = await api({
         method,
-        url: `${API_URL}/function/${name}`,
+        url: functionUrl,
         data: method !== 'GET' ? data : undefined,
         timeout: 10000, // 10 second timeout
         validateStatus: status => true // Accept any status code to handle function errors
