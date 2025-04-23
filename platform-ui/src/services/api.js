@@ -165,6 +165,19 @@ export const functionService = {
       console.error(`Error getting status for function ${name}:`, error);
       throw error;
     }
+  },
+  
+  // Delete a function
+  deleteFunction: async (name) => {
+    try {
+      // Using POST instead of DELETE to avoid potential CORS or framework limitations
+      const response = await api.post(`${CONTROLLER_URL}/delete/${name}`);
+      console.debug(`Delete function ${name} response:`, response.data);
+      return response.data;
+    } catch (error) {
+      console.error(`Error deleting function ${name}:`, error);
+      throw error;
+    }
   }
 };
 

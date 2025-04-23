@@ -35,6 +35,7 @@ function Dashboard() {
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [actionInProgress, setActionInProgress] = useState({});
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const [deleteConfirmation, setDeleteConfirmation] = useState(null);
 
   // Function to fetch all functions
   const fetchFunctions = useCallback(async () => {
@@ -192,6 +193,97 @@ function Dashboard() {
       }
     } catch (err) {
       console.error(`Failed to verify status for function ${name}:`, err);
+    }
+  };
+  
+  // Handle delete function
+  const handleDeleteFunction = async (name) => {
+    console.log(`Delete button clicked for function: ${name}`);
+    
+    try {
+      // Set action in progress for this function
+      setActionInProgress(prev => ({
+        ...prev, 
+        [name]: 'deleting'
+      }));
+      
+      // Confirm deletion
+      if (deleteConfirmation !== name) {
+        console.log(`First click - setting confirmation for ${name}`);
+        setDeleteConfirmation(name);
+        // Clear confirmation after 5 seconds
+        setTimeout(() => {
+          setDeleteConfirmation(null);
+        }, 5000);
+        return;
+      }
+      
+      console.log(`Confirmed deletion for ${name}, proceeding with delete`);
+      
+      // Reset confirmation state
+      setDeleteConfirmation(null);
+      
+      // Use XMLHttpRequest for maximum compatibility
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        const url = `${process.env.REACT_APP_CONTROLLER_URL || 'http://localhost:8081'}/delete/${name}`;
+        
+        console.log(`Sending DELETE request to ${url}`);
+        
+        xhr.open('DELETE', url, true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        
+        xhr.onload = function() {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            console.log(`Delete successful: ${xhr.responseText}`);
+            
+            // Remove from UI after successful deletion
+            setFunctions(prev => {
+              const newFunctions = { ...prev };
+              delete newFunctions[name];
+              return newFunctions;
+            });
+            
+            // Show success message
+            setError(null);
+            
+            // Refresh the function list
+            setTimeout(() => {
+              fetchFunctions();
+            }, 1000);
+            
+            resolve(xhr.responseText);
+          } else {
+            console.error(`Delete failed with status ${xhr.status}: ${xhr.responseText}`);
+            setError(`Failed to delete function ${name}: Server returned ${xhr.status}`);
+            reject(new Error(`Server returned ${xhr.status}`));
+          }
+        };
+        
+        xhr.onerror = function() {
+          console.error('Delete request failed');
+          setError(`Failed to delete function ${name}: Network error`);
+          reject(new Error('Network error'));
+        };
+        
+        xhr.send();
+      })
+      .catch(err => {
+        console.error(`XMLHttpRequest error: ${err.message}`);
+        throw err;
+      });
+    } catch (err) {
+      console.error(`Failed to delete function ${name}:`, err);
+      setError(`Failed to delete function ${name}: ${err.message || 'Unknown error'}`);
+    } finally {
+      // Clear action in progress after a delay
+      setTimeout(() => {
+        setActionInProgress(prev => {
+          const newState = { ...prev };
+          delete newState[name];
+          return newState;
+        });
+      }, 1000);
     }
   };
 
@@ -357,10 +449,27 @@ function Dashboard() {
                       </IconButton>
                     )}
                     <IconButton
-                      color="secondary"
-                      title="Delete Function"
+                      color={deleteConfirmation === name ? "error" : "secondary"}
+                      onClick={() => handleDeleteFunction(name)}
+                      title={deleteConfirmation === name ? "Click again to confirm deletion" : "Delete Function"}
+                      disabled={!!actionInProgress[name]}
+                      sx={{ 
+                        '&:hover': { 
+                          backgroundColor: deleteConfirmation === name ? 'rgba(211, 47, 47, 0.1)' : 'rgba(156, 39, 176, 0.1)' 
+                        },
+                        ...(deleteConfirmation === name && {
+                          animation: 'pulse 1s infinite',
+                          '@keyframes pulse': {
+                            '0%': { boxShadow: '0 0 0 0 rgba(211, 47, 47, 0.4)' },
+                            '70%': { boxShadow: '0 0 0 6px rgba(211, 47, 47, 0)' },
+                            '100%': { boxShadow: '0 0 0 0 rgba(211, 47, 47, 0)' }
+                          }
+                        })
+                      }}
                     >
-                      <DeleteIcon />
+                      {actionInProgress[name] === 'deleting' ?
+                        <CircularProgress size={24} color="inherit" /> :
+                        <DeleteIcon />}
                     </IconButton>
                   </TableCell>
                 </TableRow>
@@ -379,25 +488,31 @@ function Dashboard() {
               </Typography>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2 }}>
                 <div>
-                  <Typography variant="body2" color="textSecondary">
-                    Functions Deployed
-                  </Typography>
+                  <Box sx={{ mr: 2 }}>
+                    <Typography variant="body2" color="textSecondary">
+                      Deployed     
+                    </Typography>
+                  </Box>
                   <Typography variant="h4">
                     {Object.keys(functions).length}
                   </Typography>
                 </div>
                 <div>
-                  <Typography variant="body2" color="textSecondary">
-                    Functions Running
-                  </Typography>
+                  <Box sx={{ mr: 2 }}>
+                    <Typography variant="body2" color="textSecondary">
+                      Running
+                    </Typography>
+                  </Box>
                   <Typography variant="h4">
                     {Object.values(functions).filter(f => f.running).length}
                   </Typography>
                 </div>
                 <div>
-                  <Typography variant="body2" color="textSecondary">
-                    Functions Stopped
-                  </Typography>
+                  <Box sx={{ mr: 2 }}>
+                    <Typography variant="body2" color="textSecondary">
+                      Stopped
+                    </Typography>
+                  </Box>
                   <Typography variant="h4">
                     {Object.values(functions).filter(f => !f.running).length}
                   </Typography>

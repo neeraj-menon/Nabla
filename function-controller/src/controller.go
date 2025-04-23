@@ -527,6 +527,71 @@ func main() {
 		})
 	})
 
+	// Delete function handler
+	http.HandleFunc("/delete/", func(w http.ResponseWriter, r *http.Request) {
+		// Enable CORS with explicit headers
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+		// Handle preflight requests
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		// Accept both DELETE and POST methods
+		if r.Method != http.MethodDelete && r.Method != http.MethodPost {
+			log.Printf("Method not allowed: %s", r.Method)
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		// Extract function name from path
+		functionName := strings.TrimPrefix(r.URL.Path, "/delete/")
+		log.Printf("Received delete request for function: %s", functionName)
+
+		mutex.Lock()
+		defer mutex.Unlock()
+
+		// Check if function exists
+		function, exists := functions[functionName]
+		if !exists {
+			log.Printf("Function '%s' not found for deletion", functionName)
+			http.Error(w, fmt.Sprintf("Function '%s' not found", functionName), http.StatusNotFound)
+			return
+		}
+
+		log.Printf("Deleting function '%s', current status: running=%v, container=%s", 
+			functionName, function.Running, function.Container)
+
+		// Stop the container if it's running
+		if function.Container != "" {
+			log.Printf("Stopping container for function '%s' before deletion", functionName)
+			if err := stopContainer(function); err != nil {
+				log.Printf("Warning: Failed to stop container for function '%s' during deletion: %v", functionName, err)
+				// Continue with deletion even if stopping fails
+			} else {
+				log.Printf("Container for function '%s' stopped successfully", functionName)
+			}
+		}
+
+		// Remove the function from the registry
+		delete(functions, functionName)
+		log.Printf("Function '%s' removed from registry", functionName)
+
+		// Set response headers
+		w.Header().Set("Content-Type", "application/json")
+		
+		// Send success response
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": fmt.Sprintf("Function '%s' deleted successfully", functionName),
+			"status": "success",
+		})
+		log.Printf("Delete response sent for function '%s'", functionName)
+	})
+
 	// Health check endpoint
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		// Enable CORS
