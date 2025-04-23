@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  # API Gateway
+  api-gateway:
+    build:
+      context: ./api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - CONTROLLER_URL=http://function-controller:8081
+    depends_on:
+      - function-controller
+    networks:
+      - serverless-network
+
+  # Function Controller
+  function-controller:
+    build:
+      context: ./function-controller
+    ports:
+      - "8081:8081"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - METADATA_URL=http://metadata-service:8083
+    depends_on:
+      - metadata-service
+    networks:
+      - serverless-network
+
+  # Builder Service
+  builder:
+    build:
+      context: ./builder
+    ports:
+      - "8082:8082"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./runtimes:/app/runtimes
+    environment:
+      - REGISTRY_URL=localhost:5001
+    depends_on:
+      - registry
+    networks:
+      - serverless-network
+
+  # Metadata Service
+  metadata-service:
+    build:
+      context: ./metadata-service
+    ports:
+      - "8083:8083"
+    networks:
+      - serverless-network
+
+  # Platform UI
+  platform-ui:
+    build:
+      context: ./platform-ui
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8080
+      - REACT_APP_BUILDER_URL=http://localhost:8082
+      - REACT_APP_CONTROLLER_URL=http://localhost:8081
+      - REACT_APP_AUTH_TOKEN=dev-token
+    depends_on:
+      - api-gateway
+      - function-controller
+      - builder
+    networks:
+      - serverless-network
+
+  # Docker Registry (for storing function images)
+  registry:
+    image: registry:2
+    ports:
+      - "5001:5000"
+    volumes:
+      - registry-data:/var/lib/registry
+    networks:
+      - serverless-network
+
+networks:
+  serverless-network:
+    driver: bridge
+
+volumes:
+  registry-data:
