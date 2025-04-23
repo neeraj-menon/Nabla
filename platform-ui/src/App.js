@@ -7,6 +7,8 @@ import Box from '@mui/material/Box';
 // Import pages
 import Dashboard from './pages/Dashboard';
 import DeployFunction from './pages/DeployFunction';
+import DeployProject from './pages/DeployProject';
+import Projects from './pages/Projects';
 import FunctionDetail from './pages/FunctionDetail';
 import Logs from './pages/Logs';
 import Settings from './pages/Settings';
@@ -46,6 +48,8 @@ function App() {
               <Routes>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/deploy" element={<DeployFunction />} />
+                <Route path="/deploy-project" element={<DeployProject />} />
+                <Route path="/projects" element={<Projects />} />
                 <Route path="/function/:name" element={<FunctionDetail />} />
                 <Route path="/logs" element={<Logs />} />
                 <Route path="/settings" element={<Settings />} />

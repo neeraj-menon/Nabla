@@ -19,7 +19,9 @@ import {
   Settings as SettingsIcon,
   Menu as MenuIcon,
   ChevronLeft as ChevronLeftIcon,
-  WarningAmber as WarningAmberIcon
+  WarningAmber as WarningAmberIcon,
+  Apps as AppsIcon,
+  ViewModule as ProjectsIcon
 } from '@mui/icons-material';
 
 const drawerWidth = 240;
@@ -35,6 +37,8 @@ function Sidebar() {
   const menuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/' },
     { text: 'Deploy Function', icon: <DeployIcon />, path: '/deploy' },
+    { text: 'Deploy Project', icon: <AppsIcon />, path: '/deploy-project' },
+    { text: 'Projects', icon: <ProjectsIcon />, path: '/projects' },
     { text: 'Logs', icon: <LogsIcon />, path: '/logs' },
     { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
   ];

@@ -81,6 +81,26 @@ services:
       - registry-data:/var/lib/registry
     networks:
       - serverless-network
+      
+  # Project Orchestrator (for full-stack app deployment)
+  project-orchestrator:
+    build:
+      context: ./project-orchestrator
+    ports:
+      - "8085:8085"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./project-orchestrator/projects:/app/projects
+    environment:
+      - REGISTRY_URL=localhost:5001
+      - CONTROLLER_URL=http://function-controller:8081
+      - BUILDER_URL=http://builder:8082
+    depends_on:
+      - registry
+      - function-controller
+      - builder
+    networks:
+      - serverless-network
 
 networks:
   serverless-network:
