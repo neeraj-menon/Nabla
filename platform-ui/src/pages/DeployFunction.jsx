@@ -489,7 +489,14 @@ go 1.16
           <Typography variant="body2" paragraph>
             Check out our documentation for more information on deploying functions:
           </Typography>
-          <Button variant="outlined" sx={{ textTransform: 'none', borderRadius: '4px' }}>
+          <Button
+            variant="outlined"
+            sx={{ textTransform: 'none', borderRadius: '4px' }}
+            component="a"
+            href="https://github.com/neeraj-menon/Nabla/blob/main/docs/WEBUI-WALKTHROUGH.md"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             View Documentation
           </Button>
         </CardContent>

@@ -539,39 +539,7 @@ function Dashboard() {
         </Grid>
       </Grid>
       
-      <Typography variant="h6" sx={{ mt: 4, mb: 2, fontWeight: 500 }}>
-        Quick Actions
-      </Typography>
-      <Card sx={{ borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
-        <CardContent>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-            <Button 
-              variant="outlined" 
-              component={Link} 
-              to="/deploy"
-              sx={{ textTransform: 'none', borderRadius: '4px' }}
-            >
-              Deploy Function
-            </Button>
-            <Button 
-              variant="outlined" 
-              component={Link} 
-              to="/logs"
-              sx={{ textTransform: 'none', borderRadius: '4px' }}
-            >
-              View Logs
-            </Button>
-            <Button 
-              variant="outlined" 
-              component={Link} 
-              to="/settings"
-              sx={{ textTransform: 'none', borderRadius: '4px' }}
-            >
-              Settings
-            </Button>
-          </Box>
-        </CardContent>
-      </Card>
+
     </div>
   );
 }

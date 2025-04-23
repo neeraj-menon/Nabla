@@ -32,36 +32,7 @@ function Header() {
           {getPageTitle()}
         </Typography>
         <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          <Box 
-            sx={{ 
-              position: 'relative',
-              borderRadius: '4px',
-              backgroundColor: '#f5f5f5',
-              '&:hover': { backgroundColor: '#f0f0f0' },
-              marginRight: 2,
-              width: '100%',
-              maxWidth: '240px',
-              display: { xs: 'none', md: 'flex' }
-            }}
-          >
-            <Box sx={{ padding: '0 10px', height: '100%', display: 'flex', alignItems: 'center' }}>
-              <SearchIcon sx={{ color: 'rgba(0, 0, 0, 0.54)' }} />
-            </Box>
-            <InputBase
-              placeholder="Search…"
-              sx={{ 
-                color: 'inherit',
-                padding: '8px 8px 8px 0',
-                transition: 'width 0.2s',
-                width: '100%'
-              }}
-            />
-          </Box>
-          <IconButton color="inherit" size="large">
-            <Badge badgeContent={3} color="error">
-              <NotificationsIcon />
-            </Badge>
-          </IconButton>
+
           <Box sx={{ display: 'flex', alignItems: 'center', ml: 2 }}>
             <Avatar 
               sx={{ 

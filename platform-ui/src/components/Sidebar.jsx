@@ -18,7 +18,8 @@ import {
   Article as LogsIcon, 
   Settings as SettingsIcon,
   Menu as MenuIcon,
-  ChevronLeft as ChevronLeftIcon
+  ChevronLeft as ChevronLeftIcon,
+  WarningAmber as WarningAmberIcon
 } from '@mui/icons-material';
 
 const drawerWidth = 240;
@@ -34,7 +35,6 @@ function Sidebar() {
   const menuItems = [
     { text: 'Dashboard', icon: <DashboardIcon />, path: '/' },
     { text: 'Deploy Function', icon: <DeployIcon />, path: '/deploy' },
-    { text: 'Functions', icon: <FunctionsIcon />, path: '/functions' },
     { text: 'Logs', icon: <LogsIcon />, path: '/logs' },
     { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
   ];
@@ -77,7 +77,6 @@ function Sidebar() {
           {open ? <ChevronLeftIcon /> : <MenuIcon />}
         </IconButton>
       </Box>
-      <Divider />
       <List>
         {menuItems.map((item) => (
           <ListItem 
@@ -114,7 +113,23 @@ function Sidebar() {
             >
               {item.icon}
             </ListItemIcon>
-            {open && <ListItemText primary={item.text} />}
+            {open && (
+              <ListItemText
+                primary={
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    {item.text}
+                    {(item.text === 'Logs' || item.text === 'Settings') && (
+                      <Box sx={{ display: 'flex', alignItems: 'center', ml: 1 }}>
+                        <WarningAmberIcon sx={{ color: '#FFC107', fontSize: 18, mr: 0.5 }} />
+                        <Typography variant="caption" sx={{ color: '#FFC107', fontWeight: 500 }}>
+                          under dev
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                }
+              />
+            )}
           </ListItem>
         ))}
       </List>
