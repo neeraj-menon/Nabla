@@ -14,6 +14,20 @@ import (
 	"github.com/neeraj-menon/Nabla/project-orchestrator/models"
 )
 
+// NginxConfigManager defines the interface for NGINX configuration management
+type NginxConfigManager interface {
+	CreateMapping(projectName, serviceName, containerName string, port int) (string, error)
+	DeleteMapping(projectName, serviceName string) error
+}
+
+// Global NGINX configuration manager
+var nginxManager NginxConfigManager
+
+// SetNginxManager sets the NGINX configuration manager
+func SetNginxManager(manager NginxConfigManager) {
+	nginxManager = manager
+}
+
 // DeployHandler handles the deployment of a built project
 func DeployHandler(project *models.Project) error {
 	log.Printf("Deploying project %s", project.Name)
@@ -69,11 +83,27 @@ func DeployHandler(project *models.Project) error {
 		serviceStatus.ContainerID = containerId
 		serviceStatus.Port = port
 		
-		// Set URL based on service type and port
+		// Set internal URL based on service type and port (for backward compatibility)
 		if service.Type == "static" {
 			serviceStatus.URL = fmt.Sprintf("http://localhost:%d", port)
 		} else if service.Type == "api" {
 			serviceStatus.URL = fmt.Sprintf("http://localhost:%d%s", port, service.Route)
+		}
+		
+		// Create NGINX mapping for the service if NGINX manager is available
+		if nginxManager != nil {
+			containerName := fmt.Sprintf("project-%s-%s", project.Name, name)
+			subdomain, err := nginxManager.CreateMapping(project.Name, name, containerName, port)
+			if err != nil {
+				log.Printf("Warning: failed to create NGINX mapping for service %s: %v", name, err)
+			} else {
+				// Set public URL and subdomain
+				serviceStatus.Subdomain = subdomain
+				serviceStatus.PublicURL = fmt.Sprintf("http://%s", subdomain)
+				log.Printf("Created public URL for service %s: %s", name, serviceStatus.PublicURL)
+			}
+		} else {
+			log.Printf("NGINX manager not available, skipping public URL creation for service %s", name)
 		}
 		
 		project.Services[name] = serviceStatus
@@ -138,7 +168,10 @@ func deployStaticService(project *models.Project, name string, service models.Se
 	if err != nil {
 		return "", 0, fmt.Errorf("failed to run Docker container: %v", err)
 	}
-	
+
+	// Note: Container is already connected to the network when it's created
+	// No need to connect it again, which would cause an error
+
 	return containerId, port, nil
 }
 

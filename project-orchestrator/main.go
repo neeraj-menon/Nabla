@@ -14,6 +14,7 @@ import (
 
 	"github.com/neeraj-menon/Nabla/project-orchestrator/handlers"
 	"github.com/neeraj-menon/Nabla/project-orchestrator/models"
+	"github.com/neeraj-menon/Nabla/project-orchestrator/proxy"
 )
 
 // ProjectResponse represents the API response for a project
@@ -28,17 +29,27 @@ type ProjectResponse struct {
 
 // ServiceInfo represents the API response for a service
 type ServiceInfo struct {
-	Type   string `json:"type"`
-	Status string `json:"status"`
-	URL    string `json:"url,omitempty"`
-	Port   int    `json:"port,omitempty"`
+	Type      string `json:"type"`
+	Status    string `json:"status"`
+	URL       string `json:"url,omitempty"`       // Internal URL (will be deprecated)
+	Port      int    `json:"port,omitempty"`
+	PublicURL string `json:"publicUrl,omitempty"` // Public URL via NGINX
+	Subdomain string `json:"subdomain,omitempty"` // Subdomain for the service
 }
 
 // Global variables
 var (
 	projectsMutex  sync.RWMutex
 	activeProjects = make(map[string]*models.Project)
+	nginxConfig    *proxy.NginxConfig
 )
+
+// initNginxConfig initializes the NGINX configuration manager
+func initNginxConfig() {
+	configDir := "/app/proxy/nginx/conf"
+	nginxConfig = proxy.NewNginxConfig(configDir)
+	log.Printf("Initialized NGINX configuration manager with config directory: %s", configDir)
+}
 
 // processProject handles the building and deployment of a project
 func processProject(projectName, projectDir string) {
@@ -207,10 +218,12 @@ func projectToResponse(project *models.Project) ProjectResponse {
 	// Convert services
 	for name, service := range project.Services {
 		response.Services[name] = ServiceInfo{
-			Type:   service.Type,
-			Status: service.Status,
-			URL:    service.URL,
-			Port:   service.Port,
+			Type:      service.Type,
+			Status:    service.Status,
+			URL:       service.URL,
+			Port:      service.Port,
+			PublicURL: service.PublicURL,
+			Subdomain: service.Subdomain,
 		}
 	}
 
@@ -268,6 +281,12 @@ func corsMiddleware(next http.Handler) http.Handler {
 }
 
 func main() {
+	// Initialize NGINX config
+	initNginxConfig()
+	
+	// Set the NGINX manager in the handlers package
+	handlers.SetNginxManager(nginxConfig)
+
 	// Set up logging
 	log.SetFlags(log.LstdFlags)
 	log.Println("Starting Project Orchestrator service...")
@@ -506,6 +525,18 @@ func deleteProjectHandler(w http.ResponseWriter, _ *http.Request, projectName st
 				}
 			}
 		}
+	}
+
+	// Remove NGINX configurations for all services
+	if nginxConfig != nil {
+		log.Printf("Removing NGINX configurations for project %s", project.Name)
+		for name := range project.Services {
+			if err := nginxConfig.DeleteMapping(project.Name, name); err != nil {
+				log.Printf("Error removing NGINX mapping for service %s: %v", name, err)
+			}
+		}
+	} else {
+		log.Printf("NGINX config not initialized, skipping NGINX cleanup")
 	}
 
 	// Remove the project from active projects

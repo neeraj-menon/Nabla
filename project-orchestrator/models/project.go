@@ -53,11 +53,13 @@ type Project struct {
 
 // ServiceStatus represents the status of a deployed service
 type ServiceStatus struct {
-	Type       string
-	Status     string
+	Type        string
+	Status      string
 	ContainerID string
-	URL        string
-	Port       int
+	URL         string // Internal URL (will be deprecated in favor of PublicURL)
+	Port        int
+	PublicURL   string // New field for the public URL (e.g., http://project-service.platform.local)
+	Subdomain   string // New field for the subdomain (e.g., project-service.platform.local)
 }
 
 // LoadManifest loads a project manifest from a file
