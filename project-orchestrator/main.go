@@ -598,11 +598,36 @@ func deleteProjectHandler(w http.ResponseWriter, _ *http.Request, projectName st
 			log.Printf("Error checking network %s: %v", networkName, err)
 		} else {
 			if strings.TrimSpace(string(output)) == networkName {
-				log.Printf("Network %s found, attempting to remove it", networkName)
-				// Network exists, try to remove it
+				log.Printf("Network %s found, attempting to disconnect containers", networkName)
+				
+				// First disconnect the NGINX container from the network
+				disconnectNginxCmd := exec.Command("docker", "network", "disconnect", "--force", networkName, "platform-repository-nginx-1")
+				if err := disconnectNginxCmd.Run(); err != nil {
+					log.Printf("Note: Could not disconnect NGINX from network %s: %v", networkName, err)
+				} else {
+					log.Printf("Successfully disconnected NGINX from network %s", networkName)
+				}
+				
+				// Get all containers connected to the network
+				listContainersCmd := exec.Command("docker", "network", "inspect", networkName, "--format", "{{range .Containers}}{{.Name}} {{end}}")
+				containersOutput, err := listContainersCmd.CombinedOutput()
+				if err == nil {
+					containers := strings.Fields(string(containersOutput))
+					for _, container := range containers {
+						log.Printf("Disconnecting container %s from network %s", container, networkName)
+						disconnectCmd := exec.Command("docker", "network", "disconnect", "--force", networkName, container)
+						if err := disconnectCmd.Run(); err != nil {
+							log.Printf("Note: Could not disconnect container %s from network %s: %v", container, networkName, err)
+						}
+					}
+				}
+				
+				// Now try to remove the network
 				removeNetworkCmd := exec.Command("docker", "network", "rm", networkName)
 				if err := removeNetworkCmd.Run(); err != nil {
 					log.Printf("Error removing network %s: %v", networkName, err)
+				} else {
+					log.Printf("Successfully removed network %s", networkName)
 				}
 			} else {
 				log.Printf("Network %s does not exist, skipping removal", networkName)

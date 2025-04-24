@@ -91,7 +91,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./project-orchestrator/projects:/app/projects
-      - nginx-conf:/app/proxy/nginx/conf
+      - ./project-orchestrator/proxy/nginx/conf:/app/proxy/nginx/conf
     environment:
       - REGISTRY_URL=localhost:5001
       - CONTROLLER_URL=http://function-controller:8081
@@ -110,7 +110,7 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - nginx-conf:/etc/nginx/conf.d
+      - ./project-orchestrator/proxy/nginx/conf:/etc/nginx/conf.d
       - ./project-orchestrator/proxy/nginx/nginx.conf:/etc/nginx/nginx.conf
     depends_on:
       - project-orchestrator
@@ -124,4 +124,3 @@ networks:
 
 volumes:
   registry-data:
-  nginx-conf:
