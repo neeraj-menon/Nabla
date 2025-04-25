@@ -44,6 +44,14 @@ func DeployHandler(project *models.Project) error {
 		return err
 	}
 	
+	// Ensure DNS zone file is up to date
+	if dnsManager != nil {
+		if err := dnsManager.EnsureZoneFile(); err != nil {
+			log.Printf("Warning: failed to ensure DNS zone file: %v", err)
+			// Continue deployment even if DNS setup fails
+		}
+	}
+	
 	// Deploy each service
 	for name, serviceStatus := range project.Services {
 		service := project.Manifest.Services[name]

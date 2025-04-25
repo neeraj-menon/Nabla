@@ -92,6 +92,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./project-orchestrator/projects:/app/projects
       - ./project-orchestrator/proxy/nginx/conf:/app/proxy/nginx/conf
+      - ./project-orchestrator/dns:/app/dns
     environment:
       - REGISTRY_URL=localhost:5001
       - CONTROLLER_URL=http://function-controller:8081
@@ -117,6 +118,8 @@ services:
     networks:
       - serverless-network
     restart: unless-stopped
+    
+
 
 networks:
   serverless-network:

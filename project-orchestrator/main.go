@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/neeraj-menon/Nabla/project-orchestrator/dns"
 	"github.com/neeraj-menon/Nabla/project-orchestrator/handlers"
 	"github.com/neeraj-menon/Nabla/project-orchestrator/models"
 	"github.com/neeraj-menon/Nabla/project-orchestrator/proxy"
@@ -42,6 +43,7 @@ var (
 	projectsMutex  sync.RWMutex
 	activeProjects = make(map[string]*models.Project)
 	nginxConfig    *proxy.NginxConfig
+	dnsManager     *dns.DNSManager
 )
 
 // initNginxConfig initializes the NGINX configuration manager
@@ -49,6 +51,18 @@ func initNginxConfig() {
 	configDir := "/app/proxy/nginx/conf"
 	nginxConfig = proxy.NewNginxConfig(configDir)
 	log.Printf("Initialized NGINX configuration manager with config directory: %s", configDir)
+}
+
+// initDNSManager initializes the DNS manager
+func initDNSManager() {
+	dnsManager = dns.NewDNSManager()
+	
+	// Ensure the zone file exists
+	if err := dnsManager.EnsureZoneFile(); err != nil {
+		log.Printf("Warning: failed to ensure zone file: %v", err)
+	}
+	
+	log.Printf("Initialized DNS manager")
 }
 
 // processProject handles the building and deployment of a project
@@ -281,11 +295,20 @@ func corsMiddleware(next http.Handler) http.Handler {
 }
 
 func main() {
-	// Initialize NGINX config
+	// Initialize NGINX configuration
 	initNginxConfig()
 	
+	// Initialize DNS manager
+	initDNSManager()
+
+	// Load existing projects
+	loadExistingProjects()
+
 	// Set the NGINX manager in the handlers package
 	handlers.SetNginxManager(nginxConfig)
+	
+	// Set the DNS manager in the handlers package
+	handlers.SetDNSManager(dnsManager)
 
 	// Set up logging
 	log.SetFlags(log.LstdFlags)
