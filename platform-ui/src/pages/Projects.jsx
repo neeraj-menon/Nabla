@@ -403,7 +403,14 @@ function Projects() {
                       {formatDate(project.createdAt)}
                     </TableCell>
                     <TableCell>
-                      {Object.keys(project.services).length} services
+                      {/* Show services with public URLs as clickable links */}
+{/* Always show the project-level public URL */}
+<Box>
+  <Typography variant="body2" sx={{ display: 'inline', fontWeight: 500 }}>URL:</Typography>{' '}
+  <Link href={`http://${project.name}.platform.test`} target="_blank" rel="noopener noreferrer" underline="hover">
+    {`${project.name}.platform.test`}
+  </Link>
+</Box>
                     </TableCell>
                     <TableCell align="right">
                       <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -527,8 +534,21 @@ function Projects() {
               
               <Divider sx={{ my: 2 }} />
               
+              <Typography variant="h6" gutterBottom>Project URL</Typography>
+<Box sx={{ mb: 2 }}>
+  <Button
+    variant="outlined"
+    size="medium"
+    startIcon={<OpenIcon />}
+    component="a"
+    href={`http://${projectDetails.name}.platform.test`}
+    target="_blank"
+    rel="noopener noreferrer"
+  >
+    {`${projectDetails.name}.platform.test`}
+  </Button>
+</Box>
               <Typography variant="h6" gutterBottom>Services</Typography>
-              
               <Grid container spacing={2}>
                 {Object.entries(projectDetails.services).map(([name, service]) => (
                   <Grid item xs={12} sm={6} md={4} key={name}>
@@ -541,23 +561,6 @@ function Projects() {
                           Type: {service.type}
                         </Typography>
                         <StatusChip status={service.status} />
-                        
-                        {service.url && (
-                          <Box sx={{ mt: 2 }}>
-                            <Button
-                              variant="outlined"
-                              size="small"
-                              startIcon={<OpenIcon />}
-                              component="a"
-                              href={service.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              disabled={service.status !== 'running'}
-                            >
-                              Open Service
-                            </Button>
-                          </Box>
-                        )}
                       </CardContent>
                     </Card>
                   </Grid>
