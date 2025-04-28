@@ -22,12 +22,15 @@ services:
       - "8081:8081"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - function-data:/app/data
     environment:
       - METADATA_URL=http://metadata-service:8083
+      - FUNCTION_NETWORK=platform-repository_function-network
     depends_on:
       - metadata-service
     networks:
       - serverless-network
+      - function-network
 
   # Builder Service
   builder:
@@ -119,11 +122,42 @@ services:
       - serverless-network
     restart: unless-stopped
     
+  # Function Reverse Proxy
+  function-proxy:
+    build:
+      context: ./reverse-proxy
+    ports:
+      - "8090:8090"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - FUNCTION_NETWORK=platform-repository_function-network
+      - PROXY_PORT=8090
+    depends_on:
+      - function-controller
+    networks:
+      - serverless-network
+      - function-network
+    restart: unless-stopped
 
 
 networks:
+  # Main network for all platform services
   serverless-network:
     driver: bridge
+    # Enable name resolution within the network
+    driver_opts:
+      com.docker.network.bridge.enable_icc: "true"
+      com.docker.network.bridge.enable_ip_masquerade: "true"
+  
+  # Function network for function containers (will be connected to the reverse proxy)
+  function-network:
+    driver: bridge
+    # Enable name resolution within the network
+    driver_opts:
+      com.docker.network.bridge.enable_icc: "true"
+      com.docker.network.bridge.enable_ip_masquerade: "true"
 
 volumes:
   registry-data:
+  function-data:

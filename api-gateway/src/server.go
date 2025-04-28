@@ -8,6 +8,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // Simple auth middleware for MVP
@@ -103,6 +104,33 @@ var functions = map[string]Function{}
 // Controller endpoint for function invocation
 var controllerEndpoint = "http://function-controller:8081"
 
+// Proxy endpoint for direct function access (used for health checks)
+var proxyEndpoint = "http://function-proxy:8090"
+
+// checkServiceHealth checks if a service is healthy
+func checkServiceHealth(healthEndpoint string) string {
+	// Create a client with a short timeout
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+	}
+	
+	// Make request to health endpoint
+	resp, err := client.Get(healthEndpoint)
+	if err != nil {
+		log.Printf("Health check failed for %s: %v", healthEndpoint, err)
+		return "unhealthy"
+	}
+	defer resp.Body.Close()
+	
+	// Check response status
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("Health check returned non-200 status for %s: %d", healthEndpoint, resp.StatusCode)
+		return "degraded"
+	}
+	
+	return "healthy"
+}
+
 func main() {
 	// Function invocation handler
 	functionHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -111,15 +139,11 @@ func main() {
 		path := strings.TrimPrefix(r.URL.Path, "/function/")
 		functionName := strings.Split(path, "/")[0]
 
-		// Get function from registry or use default controller endpoint
-		var endpoint string
-		function, exists := functions[functionName]
-		if !exists {
-			// For MVP, if function is not in registry, assume it exists and use controller endpoint
-			endpoint = controllerEndpoint
-		} else {
-			endpoint = function.Endpoint
-		}
+		// Always use the function controller for invocation
+		endpoint := controllerEndpoint
+
+		// Log the request
+		log.Printf("Forwarding request to function: %s via controller", functionName)
 
 		// Forward request to function controller
 		targetURL, _ := url.Parse(endpoint)
@@ -171,10 +195,32 @@ func main() {
 	mux.Handle("/register", corsMiddleware(authMiddleware(registerHandler)))
 	mux.Handle("/list", corsMiddleware(authMiddleware(listHandler)))
 
-	// Health check endpoint (no auth required)
+	// Enhanced health check endpoint (no auth required)
 	mux.Handle("/health", corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		// Check controller health
+		controllerHealth := checkServiceHealth(controllerEndpoint + "/health")
+		
+		// Check proxy health
+		proxyHealth := checkServiceHealth(proxyEndpoint + "/health")
+		
+		// Prepare response
+		response := map[string]interface{}{
+			"status": "healthy",
+			"services": map[string]interface{}{
+				"api_gateway": "healthy",
+				"function_controller": controllerHealth,
+				"function_proxy": proxyHealth,
+			},
+			"timestamp": fmt.Sprintf("%d", time.Now().Unix()),
+		}
+		
+		// If any service is unhealthy, mark overall status as degraded
+		if controllerHealth != "healthy" || proxyHealth != "healthy" {
+			response["status"] = "degraded"
+		}
+		
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(response)
 	})))
 
 	// Start server

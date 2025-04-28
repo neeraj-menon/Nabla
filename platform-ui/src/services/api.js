@@ -60,7 +60,7 @@ export const functionService = {
         method,
         url: functionUrl,
         data: method !== 'GET' ? data : undefined,
-        timeout: 10000, // 10 second timeout
+        timeout: 30000, // 30 second timeout for cold starts
         validateStatus: status => true // Accept any status code to handle function errors
       });
       

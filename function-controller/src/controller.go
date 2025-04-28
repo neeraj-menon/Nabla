@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -17,18 +20,16 @@ import (
 type Function struct {
 	Name      string            `json:"name"`
 	Image     string            `json:"image"`
-	Port      int               `json:"port"`
 	Container string            `json:"container,omitempty"`
 	Running   bool              `json:"running"`
 	Env       map[string]string `json:"env,omitempty"`
 }
 
-// In-memory function registry for MVP
+// Function registry with persistence
 var (
 	functions = make(map[string]*Function)
 	mutex     = &sync.RWMutex{}
-	nextPort  = 9500          // Start from port 9500
-	portMutex = &sync.Mutex{} // Mutex specifically for port allocation
+	registryFile = "/app/data/functions.json" // Path to store function data
 )
 
 // CORS middleware to allow cross-origin requests
@@ -50,69 +51,9 @@ func enableCors(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Get a unique port for a function container
-func isPortAvailable(port int) bool {
-	// Try to create a temporary container to check if we can bind to the port
-	cmd := exec.Command("docker", "run", "--rm", "--name", fmt.Sprintf("port-test-%d", port), "-p", fmt.Sprintf("%d:8080", port), "alpine", "true")
-	output, err := cmd.CombinedOutput()
+// Note: Port allocation functions have been removed as we now use internal Docker networking
 
-	if err != nil {
-		// If we get an error about port being in use, the port is not available
-		if strings.Contains(string(output), "port is already allocated") || strings.Contains(string(output), "address already in use") {
-			log.Printf("Port %d is in use: %s", port, string(output))
-			return false
-		}
-		// If we get any other error, log it and handle it
-		log.Printf("Unexpected error checking port %d: %v\nOutput: %s", port, err, string(output))
-		// Assume the port might be available if it's not specifically a port in use error
-		return true
-	}
-
-	// If we got here without errors, the port is available
-	log.Printf("Port %d is available", port)
-	return true
-}
-
-func getNextPort() int {
-	// Lock to prevent concurrent port allocation
-	portMutex.Lock()
-	defer portMutex.Unlock()
-
-	// Start from the current nextPort value
-	startPort := nextPort
-
-	// Try ports in a smaller range to find an available one
-	for port := startPort; port < startPort+100; port++ {
-		// Check if the port is already in use by another function
-		portInUse := false
-		mutex.RLock()
-		for _, fn := range functions {
-			if fn.Port == port {
-				portInUse = true
-				break
-			}
-		}
-		mutex.RUnlock()
-
-		// Check if port is available
-		if !portInUse && isPortAvailable(port) {
-			nextPort = port + 1
-			log.Printf("Found available port: %d", port)
-			return port
-		} else {
-			if portInUse {
-				log.Printf("Port %d is already used by another function", port)
-			} else {
-				log.Printf("Port %d is not available", port)
-			}
-		}
-	}
-
-	// If we couldn't find an available port in the range, use a higher range
-	nextPort = startPort + 100
-	log.Printf("No available ports found in range %d-%d, moving to next range", startPort, startPort+99)
-	return getNextPort() // Recursively try the next range
-}
+// Note: Port allocation functions have been removed as we now use internal Docker networking
 
 // Start a function container
 func startContainer(function *Function) error {
@@ -126,69 +67,57 @@ func startContainer(function *Function) error {
 		image = strings.Replace(image, "registry:", "localhost:", 1)
 	}
 
-	// Try up to 3 times with different ports if we encounter port allocation errors
-	for attempts := 0; attempts < 3; attempts++ {
-		log.Printf("Attempting to start container with port %d (attempt %d/3)", function.Port, attempts+1)
-
-		// Prepare docker run command
-		args := []string{
-			"run",
-			"-d",
-			"--name", containerName,
-			"-p", fmt.Sprintf("%d:8080", function.Port),
-		}
-
-		// Add environment variables
-		for key, value := range function.Env {
-			args = append(args, "-e", fmt.Sprintf("%s=%s", key, value))
-		}
-
-		// Add image name
-		args = append(args, image)
-
-		// Execute docker command with timeout
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		cmd := exec.CommandContext(ctx, "docker", args...)
-		output, err := cmd.CombinedOutput()
-
-		// If successful, update function and return
-		if err == nil {
-			// Update function with container ID
-			function.Container = strings.TrimSpace(string(output))
-			function.Running = true
-
-			log.Printf("Started container %s for function %s on port %d",
-				function.Container, function.Name, function.Port)
-
-			return nil
-		}
-
-		// Check if the error is due to port allocation
-		if strings.Contains(string(output), "port is already allocated") || strings.Contains(string(output), "address already in use") {
-			log.Printf("Port %d is already in use, trying a different port", function.Port)
-
-			// Clean up the failed container if it was created
-			cleanupCmd := exec.Command("docker", "rm", "-f", containerName)
-			cleanupCmd.Run() // Ignore errors from cleanup
-
-			// Get a new port and try again
-			function.Port = getNextPort()
-
-			// Generate a new container name for the next attempt
-			containerName = fmt.Sprintf("%s-%d", function.Name, time.Now().Unix())
-			continue
-		}
-
-		// If it's not a port allocation error, return the error
-		log.Printf("Failed to start container for function %s: %v\nOutput: %s",
-			function.Name, err, string(output))
-		return err
+	// Get the network name from environment or use default with project prefix
+	networkName := os.Getenv("FUNCTION_NETWORK")
+	if networkName == "" {
+		// Use the Docker Compose prefixed network name
+		networkName = "platform-repository_function-network"
 	}
 
-	// If we've tried 3 times and still failed, return an error
-	return fmt.Errorf("failed to start container after 3 attempts with different ports")
+	// Log the network we're connecting to
+	log.Printf("Starting container for function %s on network %s", function.Name, networkName)
+
+	// Prepare docker run command - no port binding needed anymore
+	args := []string{
+		"run",
+		"-d",
+		"--name", containerName,
+		"--network", networkName, // Connect to the function network
+		"--label", fmt.Sprintf("function=%s", function.Name), // Add label for function identification
+		"--restart", "unless-stopped", // Restart policy
+	}
+
+	// Add environment variables
+	for key, value := range function.Env {
+		args = append(args, "-e", fmt.Sprintf("%s=%s", key, value))
+	}
+
+	// Add image name
+	args = append(args, image)
+
+	// Execute docker command with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "docker", args...)
+	output, err := cmd.CombinedOutput()
+
+	// If successful, update function and return
+	if err == nil {
+		// Update function with container ID
+		function.Container = strings.TrimSpace(string(output))
+		function.Running = true
+
+		log.Printf("Started container %s for function %s using internal networking",
+			function.Container, function.Name)
+
+		return nil
+	}
+
+	// If there was an error, log and return
+	log.Printf("Failed to start container for function %s: %v\nOutput: %s",
+		function.Name, err, string(output))
+	return err
 }
 
 // Stop a function container
@@ -234,7 +163,85 @@ func stopContainer(function *Function) error {
 	return nil
 }
 
+// saveRegistry saves the function registry to a file
+func saveRegistry() error {
+	mutex.RLock()
+	defer mutex.RUnlock()
+
+	// Create a copy of the functions map without runtime-specific data
+	persistentFunctions := make(map[string]Function)
+	for name, fn := range functions {
+		// Create a copy without container ID and running state
+		persistentFn := *fn
+		persistentFn.Container = ""
+		persistentFn.Running = false
+		persistentFunctions[name] = persistentFn
+	}
+
+	// Create directory if it doesn't exist
+	dir := filepath.Dir(registryFile)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		log.Printf("Error creating directory for registry file: %v", err)
+		return err
+	}
+
+	// Marshal to JSON
+	data, err := json.MarshalIndent(persistentFunctions, "", "  ")
+	if err != nil {
+		log.Printf("Error marshaling functions: %v", err)
+		return err
+	}
+
+	// Write to file
+	if err := ioutil.WriteFile(registryFile, data, 0644); err != nil {
+		log.Printf("Error writing registry file: %v", err)
+		return err
+	}
+
+	log.Printf("Function registry saved with %d functions", len(persistentFunctions))
+	return nil
+}
+
+// loadRegistry loads the function registry from a file
+func loadRegistry() error {
+	// Check if file exists
+	if _, err := os.Stat(registryFile); os.IsNotExist(err) {
+		log.Printf("Registry file does not exist, starting with empty registry")
+		return nil
+	}
+
+	// Read file
+	data, err := ioutil.ReadFile(registryFile)
+	if err != nil {
+		log.Printf("Error reading registry file: %v", err)
+		return err
+	}
+
+	// Unmarshal JSON
+	persistentFunctions := make(map[string]Function)
+	if err := json.Unmarshal(data, &persistentFunctions); err != nil {
+		log.Printf("Error unmarshaling functions: %v", err)
+		return err
+	}
+
+	// Copy to functions map
+	mutex.Lock()
+	defer mutex.Unlock()
+
+	for name, fn := range persistentFunctions {
+		fnCopy := fn // Create a copy to avoid reference issues
+		functions[name] = &fnCopy
+	}
+
+	log.Printf("Loaded %d functions from registry", len(persistentFunctions))
+	return nil
+}
+
 func main() {
+	// Load function registry from file
+	if err := loadRegistry(); err != nil {
+		log.Printf("Warning: Failed to load function registry: %v", err)
+	}
 	// Register function handler
 	http.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
 		// Enable CORS
@@ -256,15 +263,15 @@ func main() {
 			return
 		}
 
-		// Assign a port if not specified
-		if function.Port == 0 {
-			function.Port = getNextPort()
-		}
+		// No need to assign ports with internal networking
 
 		// Store function in registry
 		mutex.Lock()
 		functions[function.Name] = &function
 		mutex.Unlock()
+		
+		// Save registry to file
+		go saveRegistry()
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
@@ -300,25 +307,54 @@ func main() {
 		if !function.Running {
 			mutex.Lock()
 			if !function.Running {
+				log.Printf("Starting container for function %s before invocation", functionName)
 				if err := startContainer(function); err != nil {
 					mutex.Unlock()
 					http.Error(w, fmt.Sprintf("Failed to start function: %v", err), http.StatusInternalServerError)
 					return
 				}
 
-				// Wait for container to start
-				time.Sleep(2 * time.Second)
+				// Wait for container to start and initialize
+				log.Printf("Waiting for function %s container to initialize", functionName)
+				time.Sleep(3 * time.Second)
 			}
 			mutex.Unlock()
 		}
+		
+		// Verify container is actually running
+		if function.Container != "" && !isContainerRunning(function.Container) {
+			log.Printf("Container for function %s is not running, attempting to restart", functionName)
+			mutex.Lock()
+			function.Container = ""
+			function.Running = false
+			if err := startContainer(function); err != nil {
+				mutex.Unlock()
+				http.Error(w, fmt.Sprintf("Failed to restart function: %v", err), http.StatusInternalServerError)
+				return
+			}
+			time.Sleep(3 * time.Second)
+			mutex.Unlock()
+		}
 
-		// Forward request to function container
-		// Use host.docker.internal to access the host from inside the container
-		functionURL := fmt.Sprintf("http://host.docker.internal:%d%s",
-			function.Port,
-			strings.TrimPrefix(r.URL.Path, "/invoke/"+functionName))
+		// Forward request to function container via the reverse proxy
+		// Extract the path after the function name
+		subPath := ""
+		if len(strings.Split(path, "/")) > 1 {
+			subPath = strings.Join(strings.Split(path, "/")[1:], "/")
+		}
 
-		// Create a new request to the function
+		// Build the URL to the function-proxy service
+		functionURL := fmt.Sprintf("http://function-proxy:8090/function/%s", functionName)
+		if subPath != "" {
+			functionURL = fmt.Sprintf("%s/%s", functionURL, subPath)
+		}
+		if r.URL.RawQuery != "" {
+			functionURL = fmt.Sprintf("%s?%s", functionURL, r.URL.RawQuery)
+		}
+
+		log.Printf("Forwarding request to function %s via proxy: %s", functionName, functionURL)
+
+		// Create a new request to the function proxy
 		proxyReq, err := http.NewRequest(r.Method, functionURL, r.Body)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Error creating proxy request: %v", err), http.StatusInternalServerError)
@@ -332,10 +368,11 @@ func main() {
 			}
 		}
 
-		// Send request to function
-		client := &http.Client{Timeout: 30 * time.Second}
+		// Send request to function via proxy with increased timeout
+		client := &http.Client{Timeout: 25 * time.Second} // Increased timeout but less than client-side 30s
 		resp, err := client.Do(proxyReq)
 		if err != nil {
+			log.Printf("Error invoking function %s via proxy: %v", functionName, err)
 			http.Error(w, fmt.Sprintf("Error invoking function: %v", err), http.StatusInternalServerError)
 			return
 		}
@@ -401,8 +438,35 @@ func main() {
 			}
 		}
 
+		// Convert to a response format with additional information
+		type FunctionResponse struct {
+			Name      string            `json:"name"`
+			Image     string            `json:"image"`
+			Container string            `json:"container,omitempty"`
+			Running   bool              `json:"running"`
+			Env       map[string]string `json:"env,omitempty"`
+			Endpoint  string            `json:"endpoint"`
+		}
+
+		// Create a map with function names as keys
+		responseMap := make(map[string]FunctionResponse)
+		for _, fn := range functionsCopy {
+			// Create endpoint URL for the function
+			endpoint := fmt.Sprintf("/function/%s", fn.Name)
+			
+			responseMap[fn.Name] = FunctionResponse{
+				Name:      fn.Name,
+				Image:     fn.Image,
+				Container: fn.Container,
+				Running:   fn.Running,
+				Env:       fn.Env,
+				Endpoint:  endpoint,
+			}
+		}
+
+		// Write the response
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(functionsCopy)
+		json.NewEncoder(w).Encode(responseMap)
 	})
 
 	// Start function handler
@@ -579,6 +643,9 @@ func main() {
 		// Remove the function from the registry
 		delete(functions, functionName)
 		log.Printf("Function '%s' removed from registry", functionName)
+		
+		// Save registry to file
+		go saveRegistry()
 
 		// Set response headers
 		w.Header().Set("Content-Type", "application/json")
