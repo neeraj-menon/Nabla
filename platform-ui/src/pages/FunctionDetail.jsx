@@ -32,6 +32,7 @@ import {
   Save as SaveIcon,
   Code as CodeIcon
 } from '@mui/icons-material';
+import { CheckCircle, ErrorOutline } from '@mui/icons-material';
 import { functionService } from '../services/api';
 import CodeEditor from '../components/CodeEditor/CodeEditor';
 import { createZipFromFiles, createFileFromZip } from '../utils/zipUtils';
@@ -745,6 +746,24 @@ function FunctionDetail() {
                 </Box>
               ) : testResponse ? (
                 <Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                    {testResponse.status >= 200 && testResponse.status < 300 ? (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <CheckCircle color="success" sx={{ fontSize: 20 }} />
+                        <Typography variant="subtitle2" color="success">
+                          Success
+                        </Typography>
+                      </Box>
+                    ) : (
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <ErrorOutline color="error" sx={{ fontSize: 20 }} />
+                        <Typography variant="subtitle2" color="error">
+                          Error ({testResponse.status})
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                  
                   <Typography variant="subtitle2" color="textSecondary" gutterBottom>
                     Status: {testResponse.status}
                   </Typography>
