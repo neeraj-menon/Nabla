@@ -91,17 +91,27 @@ func DeployHandler(project *models.Project) error {
 		serviceStatus.ContainerID = containerId
 		serviceStatus.Port = port
 		
-		// Set internal URL based on service type and port (for backward compatibility)
+		// Set internal URL based on container name and service type
+		containerName := fmt.Sprintf("project-%s-%s", project.Name, name)
 		if service.Type == "static" {
-			serviceStatus.URL = fmt.Sprintf("http://localhost:%d", port)
+			serviceStatus.URL = fmt.Sprintf("http://%s", containerName)
 		} else if service.Type == "api" {
-			serviceStatus.URL = fmt.Sprintf("http://localhost:%d%s", port, service.Route)
+			serviceStatus.URL = fmt.Sprintf("http://%s%s", containerName, service.Route)
 		}
 		
 		// Create NGINX mapping for the service if NGINX manager is available
 		if nginxManager != nil {
 			containerName := fmt.Sprintf("project-%s-%s", project.Name, name)
-			subdomain, err := nginxManager.CreateMapping(project.Name, name, containerName, port)
+			// For API services, use the container port (typically 5000)
+			containerPort := 80
+			if service.Type == "api" {
+				if service.Port != 0 {
+					containerPort = service.Port
+				} else {
+					containerPort = 5000
+				}
+			}
+			subdomain, err := nginxManager.CreateMapping(project.Name, name, containerName, containerPort)
 			if err != nil {
 				log.Printf("Warning: failed to create NGINX mapping for service %s: %v", name, err)
 			} else {
@@ -164,23 +174,26 @@ func deployStaticService(project *models.Project, name string, service models.Se
 		return "", 0, fmt.Errorf("failed to build Docker image: %v", err)
 	}
 	
-	// Find an available port
-	port, err := findAvailablePort(8000, 9000)
-	if err != nil {
-		return "", 0, fmt.Errorf("failed to find available port: %v", err)
-	}
+	// Container port for static services is typically 80
+	containerPort := 80
 	
-	// Run the Docker container
+	// Run the Docker container with labels for internal routing
 	containerName := fmt.Sprintf("project-%s-%s", project.Name, name)
-	containerId, err := runDockerContainer(imageName, containerName, port, 80, networkName, nil)
+	containerId, err := runDockerContainerWithLabels(
+		imageName, 
+		containerName, 
+		project.Name, 
+		name, 
+		"static", 
+		containerPort, 
+		networkName, 
+		nil,
+	)
 	if err != nil {
 		return "", 0, fmt.Errorf("failed to run Docker container: %v", err)
 	}
 
-	// Note: Container is already connected to the network when it's created
-	// No need to connect it again, which would cause an error
-
-	return containerId, port, nil
+	return containerId, containerPort, nil
 }
 
 // deployApiService deploys an API backend service
@@ -192,12 +205,6 @@ func deployApiService(project *models.Project, name string, service models.Servi
 	imageName := fmt.Sprintf("project-%s-%s", project.Name, name)
 	if err := buildDockerImage(servicePath, imageName); err != nil {
 		return "", 0, fmt.Errorf("failed to build Docker image: %v", err)
-	}
-	
-	// Find an available port
-	port, err := findAvailablePort(9000, 10000)
-	if err != nil {
-		return "", 0, fmt.Errorf("failed to find available port: %v", err)
 	}
 	
 	// Prepare environment variables
@@ -232,14 +239,23 @@ func deployApiService(project *models.Project, name string, service models.Servi
 		containerPort = service.Port
 	}
 	
-	// Run the Docker container
+	// Run the Docker container with labels for internal routing
 	containerName := fmt.Sprintf("project-%s-%s", project.Name, name)
-	containerId, err := runDockerContainer(imageName, containerName, port, containerPort, networkName, env)
+	containerId, err := runDockerContainerWithLabels(
+		imageName, 
+		containerName, 
+		project.Name, 
+		name, 
+		"api", 
+		containerPort, 
+		networkName, 
+		env,
+	)
 	if err != nil {
 		return "", 0, fmt.Errorf("failed to run Docker container: %v", err)
 	}
 	
-	return containerId, port, nil
+	return containerId, containerPort, nil
 }
 
 // deployWorkerService deploys a background worker service
@@ -270,9 +286,18 @@ func deployWorkerService(project *models.Project, name string, service models.Se
 		}
 	}
 	
-	// Run the Docker container without port mapping
+	// Run the Docker container with labels for internal routing
 	containerName := fmt.Sprintf("project-%s-%s", project.Name, name)
-	containerId, err := runDockerContainerWithoutPort(imageName, containerName, networkName, env)
+	containerId, err := runDockerContainerWithLabels(
+		imageName, 
+		containerName, 
+		project.Name, 
+		name, 
+		"worker", 
+		0, // Workers don't expose ports
+		networkName, 
+		env,
+	)
 	if err != nil {
 		return "", 0, fmt.Errorf("failed to run Docker container: %v", err)
 	}
@@ -344,8 +369,9 @@ func cleanupContainer(containerName string) error {
 }
 
 // runDockerContainer runs a Docker container with port mapping
+// This is kept for backward compatibility
 func runDockerContainer(imageName string, containerName string, hostPort int, containerPort int, networkName string, env map[string]string) (string, error) {
-	log.Printf("Running Docker container %s from image %s", containerName, imageName)
+	log.Printf("Running Docker container %s from image %s with port mapping %d:%d", containerName, imageName, hostPort, containerPort)
 	
 	// Clean up any existing container with the same name
 	if err := cleanupContainer(containerName); err != nil {
@@ -388,6 +414,61 @@ func runDockerContainer(imageName string, containerName string, hostPort int, co
 	// Get the container ID
 	containerId := strings.TrimSpace(stdout.String())
 	log.Printf("Started Docker container: %s (%s)", containerName, containerId)
+	
+	return containerId, nil
+}
+
+// runDockerContainerWithLabels runs a Docker container without host port binding
+// but with service discovery labels for internal routing
+func runDockerContainerWithLabels(imageName string, containerName string, projectName string, serviceName string, serviceType string, containerPort int, networkName string, env map[string]string) (string, error) {
+	log.Printf("Running Docker container %s from image %s with internal routing", containerName, imageName)
+	
+	// Clean up any existing container with the same name
+	if err := cleanupContainer(containerName); err != nil {
+		return "", err
+	}
+	
+	// Prepare the command
+	args := []string{
+		"run",
+		"-d",
+		"--name", containerName,
+		"--network", networkName,
+		"--restart", "unless-stopped",
+	}
+	
+	// Add service discovery labels
+	args = append(args, 
+		"--label", fmt.Sprintf("platform.project=%s", projectName),
+		"--label", fmt.Sprintf("platform.service=%s", serviceName),
+		"--label", fmt.Sprintf("platform.type=%s", serviceType),
+		"--label", fmt.Sprintf("platform.port=%d", containerPort),
+	)
+	
+	// Add environment variables
+	for k, v := range env {
+		args = append(args, "-e", fmt.Sprintf("%s=%s", k, v))
+	}
+	
+	// Add the image name
+	args = append(args, imageName)
+	
+	// Run the container
+	cmd := exec.Command("docker", args...)
+	
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	
+	if err := cmd.Run(); err != nil {
+		log.Printf("Docker run output: %s", stdout.String())
+		log.Printf("Docker run error: %s", stderr.String())
+		return "", fmt.Errorf("failed to run Docker container: %v", err)
+	}
+	
+	// Get the container ID
+	containerId := strings.TrimSpace(stdout.String())
+	log.Printf("Started Docker container: %s (%s) with internal routing", containerName, containerId)
 	
 	return containerId, nil
 }

@@ -9,8 +9,10 @@ services:
       - "8080:8080"
     environment:
       - CONTROLLER_URL=http://function-controller:8081
+      - FUNCTION_PROXY_URL=http://function-proxy:8090
     depends_on:
       - function-controller
+      - function-proxy
     networks:
       - serverless-network
 
@@ -26,6 +28,8 @@ services:
     environment:
       - METADATA_URL=http://metadata-service:8083
       - FUNCTION_NETWORK=platform-repository_function-network
+      - FUNCTION_PROXY_URL=http://function-proxy:8090
+      - USE_INTERNAL_ROUTING=true
     depends_on:
       - metadata-service
     networks:
@@ -67,11 +71,13 @@ services:
       - REACT_APP_API_URL=http://localhost:8080
       - REACT_APP_BUILDER_URL=http://localhost:8082
       - REACT_APP_CONTROLLER_URL=http://localhost:8081
+      - REACT_APP_FUNCTION_PROXY_URL=http://localhost:8090
       - REACT_APP_AUTH_TOKEN=dev-token
     depends_on:
       - api-gateway
       - function-controller
       - builder
+      - function-proxy
     networks:
       - serverless-network
 
@@ -133,6 +139,8 @@ services:
     environment:
       - FUNCTION_NETWORK=platform-repository_function-network
       - PROXY_PORT=8090
+      - DISCOVERY_LABELS=platform.service,function
+      - CONTAINER_PORT_LABEL=platform.port
     depends_on:
       - function-controller
     networks:

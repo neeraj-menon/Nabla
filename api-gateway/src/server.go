@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -138,23 +139,35 @@ func main() {
 		// Path format: /function/{name}
 		path := strings.TrimPrefix(r.URL.Path, "/function/")
 		functionName := strings.Split(path, "/")[0]
+		subPath := strings.TrimPrefix(r.URL.Path, "/function/"+functionName)
 
-		// Always use the function controller for invocation
-		endpoint := controllerEndpoint
+		// Use the function proxy for invocation with the new internal routing approach
+		endpoint := proxyEndpoint
 
 		// Log the request
-		log.Printf("Forwarding request to function: %s via controller", functionName)
+		log.Printf("Forwarding request to function: %s via proxy", functionName)
 
-		// Forward request to function controller
+		// Forward request to function proxy
 		targetURL, _ := url.Parse(endpoint)
 		proxy := httputil.NewSingleHostReverseProxy(targetURL)
 		
-		// Update request URL path to include function name
-		r.URL.Path = "/invoke/" + functionName + strings.TrimPrefix(r.URL.Path, "/function/"+functionName)
+		// Update request URL path to use the proxy's function endpoint format
+		// The proxy expects: /function/{name}/{path}
+		r.URL.Path = "/function/" + functionName + subPath
 		r.URL.Host = targetURL.Host
 		r.URL.Scheme = targetURL.Scheme
 		r.Header.Set("X-Forwarded-Host", r.Header.Get("Host"))
 		r.Host = targetURL.Host
+
+		// Set a longer timeout for the proxy to handle cold starts
+		proxy.Transport = &http.Transport{
+			ResponseHeaderTimeout: 30 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+			DialContext: (&net.Dialer{
+				Timeout:   30 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
+		}
 
 		proxy.ServeHTTP(w, r)
 	})

@@ -23,9 +23,12 @@ import (
 var (
 	functionNetwork = os.Getenv("FUNCTION_NETWORK")
 	proxyPort       = os.Getenv("PROXY_PORT")
+	discoveryLabels = os.Getenv("DISCOVERY_LABELS")
+	containerPortLabel = os.Getenv("CONTAINER_PORT_LABEL")
 	dockerClient    *client.Client
 	functionCache   = make(map[string]string) // Maps function name to container ID
 	cacheMutex      = &sync.RWMutex{}
+	labelsList      []string // List of labels to use for discovery
 )
 
 func init() {
@@ -36,6 +39,17 @@ func init() {
 	}
 	if proxyPort == "" {
 		proxyPort = "8090"
+	}
+	
+	// Set up discovery labels
+	if discoveryLabels == "" {
+		discoveryLabels = "platform.service,function"
+	}
+	labelsList = strings.Split(discoveryLabels, ",")
+	
+	// Set default container port label
+	if containerPortLabel == "" {
+		containerPortLabel = "platform.port"
 	}
 
 	// Initialize Docker client
@@ -79,16 +93,35 @@ func getFunctionContainer(functionName string) (string, error) {
 		cacheMutex.Unlock()
 	}
 
-	// Search for container with label matching function name
-	args := filters.NewArgs()
-	args.Add("label", fmt.Sprintf("function=%s", functionName))
-	containers, err := dockerClient.ContainerList(context.Background(), types.ContainerListOptions{
-		Filters: args,
-	})
-
-	if err != nil {
-		return "", fmt.Errorf("error listing containers: %v", err)
+	// Try each discovery label in order
+	var containers []types.Container
+	var lastErr error
+	
+	for _, labelKey := range labelsList {
+		args := filters.NewArgs()
+		args.Add("label", fmt.Sprintf("%s=%s", labelKey, functionName))
+		
+		containerList, err := dockerClient.ContainerList(context.Background(), types.ContainerListOptions{
+			Filters: args,
+		})
+		
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		
+		if len(containerList) > 0 {
+			containers = containerList
+			break
+		}
 	}
+	
+	// If we have an error and no containers, return the error
+	if len(containers) == 0 && lastErr != nil {
+		return "", lastErr
+	}
+
+	// No need to check for err here as we've already handled it above
 
 	if len(containers) == 0 {
 		return "", fmt.Errorf("no container found for function: %s", functionName)
@@ -154,8 +187,18 @@ func proxyRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Determine container port from label or use default
+	containerPort := "8080"
+	// Inspect the container to get all labels
+	containerInfo, err := dockerClient.ContainerInspect(context.Background(), containerID)
+	if err == nil && containerInfo.Config != nil {
+		if portLabel, exists := containerInfo.Config.Labels[containerPortLabel]; exists && portLabel != "0" {
+			containerPort = portLabel
+		}
+	}
+	
 	// Build target URL
-	targetURL := fmt.Sprintf("http://%s:8080%s", containerIP, path)
+	targetURL := fmt.Sprintf("http://%s:%s%s", containerIP, containerPort, path)
 	if r.URL.RawQuery != "" {
 		targetURL += "?" + r.URL.RawQuery
 	}
@@ -238,26 +281,43 @@ func listFunctions(w http.ResponseWriter, r *http.Request) {
 	enableCors(w, r)
 	w.Header().Set("Content-Type", "application/json")
 
-	// List containers with function label
-	args := filters.NewArgs()
-	args.Add("label", "function")
-	containers, err := dockerClient.ContainerList(context.Background(), types.ContainerListOptions{
-		Filters: args,
-	})
-
-	if err != nil {
-		log.Printf("Error listing containers: %v", err)
-		http.Error(w, "Error listing functions", http.StatusInternalServerError)
-		return
+	// Get all containers with any of our discovery labels
+	var allContainers []types.Container
+	
+	for _, labelKey := range labelsList {
+		args := filters.NewArgs()
+		args.Add("label", labelKey)
+		
+		containerList, err := dockerClient.ContainerList(context.Background(), types.ContainerListOptions{
+			Filters: args,
+		})
+		
+		if err == nil && len(containerList) > 0 {
+			allContainers = append(allContainers, containerList...)
+		}
+	}
+	
+	// Deduplicate containers by ID
+	containerMap := make(map[string]types.Container)
+	for _, container := range allContainers {
+		containerMap[container.ID] = container
+	}
+	
+	// Convert back to slice
+	containers := make([]types.Container, 0, len(containerMap))
+	for _, container := range containerMap {
+		containers = append(containers, container)
 	}
 
 	// Format response
 	functions := make([]map[string]interface{}, 0)
 	for _, container := range containers {
 		functionName := ""
-		for _, label := range container.Labels {
-			if strings.HasPrefix(label, "function=") {
-				functionName = strings.TrimPrefix(label, "function=")
+		
+		// Check each discovery label in order
+		for _, labelKey := range labelsList {
+			if name, exists := container.Labels[labelKey]; exists {
+				functionName = name
 				break
 			}
 		}
