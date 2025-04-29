@@ -205,6 +205,42 @@ export const functionService = {
       console.error(`Error deleting function ${name}:`, error);
       throw error;
     }
+  },
+  
+  // Get function logs
+  getFunctionLogs: async (name, lines = 100) => {
+    try {
+      console.debug(`Getting logs for function ${name} (${lines} lines)`);
+      // Use the JSON logs endpoint for more reliable parsing
+      const url = `${CONTROLLER_URL}/logs-json/${name}?lines=${lines}`;
+      console.debug('Logs request URL:', url);
+      
+      const response = await api.get(url, {
+        timeout: 10000 // 10 second timeout for logs
+      });
+      
+      console.debug(`Logs response status: ${response.status}, content type: ${response.headers['content-type']}`);
+      console.debug('Logs response data:', response.data);
+      
+      // The JSON endpoint returns a structured response
+      if (response.data && response.data.logs !== undefined) {
+        return response.data.logs;
+      } else if (response.data && response.data.message) {
+        return response.data.message;
+      } else {
+        console.warn('Unexpected logs response format:', response.data);
+        return 'Logs format error. Please check console for details.';
+      }
+    } catch (error) {
+      console.error(`Error getting logs for function ${name}:`, error);
+      if (error.response && error.response.status === 400) {
+        // Function is not running
+        return 'Function is not running. Start the function to view logs.';
+      } else if (error.message) {
+        return `Error fetching logs: ${error.message}`;
+      }
+      return 'Failed to fetch logs. Please check the console for details.';
+    }
   }
 };
 

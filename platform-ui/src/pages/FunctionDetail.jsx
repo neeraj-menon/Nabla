@@ -75,6 +75,11 @@ function FunctionDetail() {
   const [testLoading, setTestLoading] = useState(false);
   const [testError, setTestError] = useState(null);
 
+  // State for logs
+  const [logs, setLogs] = useState('');
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsError, setLogsError] = useState(null);
+
   // State for tracking actions in progress
   const [actionInProgress, setActionInProgress] = useState(false);
   const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
@@ -177,6 +182,11 @@ function FunctionDetail() {
         if (!actionInProgress) {
           // Use verifyFunctionStatus for more direct status checks
           verifyFunctionStatus();
+          
+          // Refresh logs if we're on the logs tab and the function is running
+          if (tabValue === 1 && functionData?.running) {
+            fetchLogs();
+          }
         }
       }, 5000);
     }
@@ -186,7 +196,7 @@ function FunctionDetail() {
         clearInterval(intervalId);
       }
     };
-  }, [autoRefreshEnabled, actionInProgress]);
+  }, [autoRefreshEnabled, actionInProgress, tabValue, functionData?.running]);
 
   // Handle refresh
   const handleRefresh = () => {
@@ -237,6 +247,40 @@ function FunctionDetail() {
   // Handle tab change
   const handleTabChange = (event, newValue) => {
     setTabValue(newValue);
+    
+    // If switching to logs tab and function is running, fetch logs
+    if (newValue === 1 && functionData?.running) {
+      fetchLogs();
+    }
+  };
+  
+  // Fetch logs for the function
+  const fetchLogs = async (lines = 100) => {
+    console.debug(`Fetching logs for function ${name}, running: ${functionData?.running}`);
+    
+    if (!functionData?.running) {
+      console.debug('Function not running, setting default message');
+      setLogs('Function is not running. Start the function to view logs.');
+      return;
+    }
+    
+    try {
+      setLogsLoading(true);
+      setLogsError(null);
+      
+      console.debug(`Calling API to get logs for ${name} with ${lines} lines`);
+      const logsData = await functionService.getFunctionLogs(name, lines);
+      console.debug('Logs received:', logsData ? `${logsData.length} characters` : 'none');
+      
+      // Always set logs, even if empty string
+      setLogs(logsData || 'No logs available.');
+    } catch (err) {
+      console.error(`Failed to fetch logs for function ${name}:`, err);
+      setLogsError(`Failed to fetch logs: ${err.message}`);
+      setLogs('');
+    } finally {
+      setLogsLoading(false);
+    }
   };
 
   // Handle start function
@@ -260,6 +304,12 @@ function FunctionDetail() {
         verifyFunctionStatus();
         // Clear action in progress
         setActionInProgress(false);
+        
+        // If we're on the logs tab, fetch logs after starting
+        if (tabValue === 1) {
+          // Wait a bit more for logs to be available
+          setTimeout(() => fetchLogs(), 1000);
+        }
       }, 2000);
     } catch (err) {
       console.error(`Failed to start function ${name}:`, err);
@@ -808,16 +858,70 @@ function FunctionDetail() {
         </TabPanel>
 
         <TabPanel value={tabValue} index={1}>
-          <Typography variant="h6" gutterBottom sx={{ fontWeight: 500 }}>
-            Function Logs
-          </Typography>
-          
-          <Paper variant="outlined" sx={{ p: 2, mt: 3, borderRadius: '8px', bgcolor: 'background.paper', fontFamily: 'monospace', fontSize: '0.875rem', height: 300, overflowY: 'auto' }}>
-            <Typography variant="body2" color="textSecondary" sx={{ textAlign: 'center' }}>
-              {functionData?.running 
-                ? 'Logs will be available soon...' 
-                : 'Function is not running. Start the function to view logs.'}
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h6" sx={{ fontWeight: 500 }}>
+              Function Logs
             </Typography>
+            <Box>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={logsLoading ? <CircularProgress size={16} /> : <RefreshIcon />}
+                onClick={() => fetchLogs(200)}
+                disabled={logsLoading || !functionData?.running}
+                sx={{ textTransform: 'none', mr: 1 }}
+              >
+                Refresh
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                color="primary"
+                onClick={() => fetchLogs(500)}
+                disabled={logsLoading || !functionData?.running}
+                sx={{ textTransform: 'none' }}
+              >
+                More Logs
+              </Button>
+            </Box>
+          </Box>
+          
+          {logsError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {logsError}
+            </Alert>
+          )}
+          
+          <Paper 
+            variant="outlined" 
+            sx={{ 
+              p: 2, 
+              borderRadius: '8px', 
+              bgcolor: '#1e1e1e', 
+              color: '#f8f8f8',
+              fontFamily: 'monospace', 
+              fontSize: '0.875rem', 
+              height: 400, 
+              overflowY: 'auto',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word'
+            }}
+          >
+            {logsLoading && !logs ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+                <CircularProgress size={24} />
+              </Box>
+            ) : logs ? (
+              <Box component="pre" sx={{ m: 0, p: 0, fontFamily: 'inherit', fontSize: 'inherit', overflow: 'visible' }}>
+                {logs}
+              </Box>
+            ) : (
+              <Typography variant="body2" color="gray" sx={{ textAlign: 'center' }}>
+                {functionData?.running 
+                  ? 'No logs available. Try refreshing.' 
+                  : 'Function is not running. Start the function to view logs.'}
+              </Typography>
+            )}
           </Paper>
         </TabPanel>
 

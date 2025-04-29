@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -671,6 +672,105 @@ func main() {
 
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
+	})
+
+	// Get function logs endpoint (plain text version)
+	http.HandleFunc("/logs/", func(w http.ResponseWriter, r *http.Request) {
+		// Enable CORS
+		enableCors(w, r)
+
+		// Handle preflight requests
+		if r.Method == "OPTIONS" {
+			return
+		}
+
+		// Extract function name from path
+		functionName := strings.TrimPrefix(r.URL.Path, "/logs/")
+		
+		// Get lines parameter (default to 100)
+		lines := 100
+		if linesParam := r.URL.Query().Get("lines"); linesParam != "" {
+			if parsedLines, err := strconv.Atoi(linesParam); err == nil && parsedLines > 0 {
+				lines = parsedLines
+			}
+		}
+
+		mutex.RLock()
+		function, exists := functions[functionName]
+		mutex.RUnlock()
+
+		if !exists {
+			http.Error(w, fmt.Sprintf("Function '%s' not found", functionName), http.StatusNotFound)
+			return
+		}
+
+		// Check if the function has a container
+		if function.Container == "" {
+			http.Error(w, "Function is not running", http.StatusBadRequest)
+			return
+		}
+
+		// Get container logs
+		logs := getContainerLogs(function.Container, lines)
+		
+		// Return logs as plain text
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte(logs))
+	})
+
+	// Get function logs endpoint (JSON version)
+	http.HandleFunc("/logs-json/", func(w http.ResponseWriter, r *http.Request) {
+		// Enable CORS
+		enableCors(w, r)
+
+		// Handle preflight requests
+		if r.Method == "OPTIONS" {
+			return
+		}
+
+		// Extract function name from path
+		functionName := strings.TrimPrefix(r.URL.Path, "/logs-json/")
+		
+		// Get lines parameter (default to 100)
+		lines := 100
+		if linesParam := r.URL.Query().Get("lines"); linesParam != "" {
+			if parsedLines, err := strconv.Atoi(linesParam); err == nil && parsedLines > 0 {
+				lines = parsedLines
+			}
+		}
+
+		mutex.RLock()
+		function, exists := functions[functionName]
+		mutex.RUnlock()
+
+		if !exists {
+			http.Error(w, fmt.Sprintf("Function '%s' not found", functionName), http.StatusNotFound)
+			return
+		}
+
+		// Check if the function has a container
+		if function.Container == "" {
+			// Return empty logs with a message
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"logs": "",
+				"message": "Function is not running",
+				"running": false,
+			})
+			return
+		}
+
+		// Get container logs
+		logs := getContainerLogs(function.Container, lines)
+		
+		// Return logs as JSON
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"logs": logs,
+			"running": true,
+			"container": function.Container,
+			"timestamp": time.Now().Unix(),
+		})
 	})
 
 	// Start server
