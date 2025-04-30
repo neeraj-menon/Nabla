@@ -117,7 +117,8 @@ func corsMiddleware(next http.Handler) http.Handler {
 		// Set CORS headers
 		crw.Header().Set("Access-Control-Allow-Origin", "*")
 		crw.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		crw.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		crw.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-User-ID, X-Username")
+		crw.Header().Set("Access-Control-Expose-Headers", "X-User-ID, X-Username")
 
 		// Handle preflight requests
 		if r.Method == "OPTIONS" {
@@ -231,6 +232,13 @@ func main() {
 		r.URL.Scheme = targetURL.Scheme
 		r.Header.Set("X-Forwarded-Host", r.Header.Get("Host"))
 		r.Host = targetURL.Host
+		
+		// Forward user ID from auth middleware to function controller
+		// This is needed for user-scoped function access control
+		userID := r.Header.Get("X-User-ID")
+		if userID != "" {
+			log.Printf("Forwarding user ID: %s for function: %s", userID, functionName)
+		}
 
 		// Set a longer timeout for the proxy to handle cold starts
 		proxy.Transport = &http.Transport{
@@ -275,9 +283,49 @@ func main() {
 		json.NewEncoder(w).Encode(functions)
 	})
 
+	// Function controller proxy handler for management operations
+	functionControllerHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Extract the path after /function/
+		path := strings.TrimPrefix(r.URL.Path, "/function/")
+		
+		// Check if this is a function invocation or management operation
+		if strings.HasPrefix(path, "register") || 
+		   strings.HasPrefix(path, "start/") || 
+		   strings.HasPrefix(path, "stop/") || 
+		   strings.HasPrefix(path, "delete/") || 
+		   strings.HasPrefix(path, "list") {
+			// This is a management operation, forward to function controller
+			targetURL, _ := url.Parse(controllerEndpoint)
+			proxy := httputil.NewSingleHostReverseProxy(targetURL)
+			
+			// Update request URL path
+			r.URL.Path = "/" + path
+			r.URL.Host = targetURL.Host
+			r.URL.Scheme = targetURL.Scheme
+			r.Header.Set("X-Forwarded-Host", r.Header.Get("Host"))
+			r.Host = targetURL.Host
+			
+			// Set a longer timeout for the proxy
+			proxy.Transport = &http.Transport{
+				ResponseHeaderTimeout: 30 * time.Second,
+				ExpectContinueTimeout: 1 * time.Second,
+				DialContext: (&net.Dialer{
+					Timeout:   30 * time.Second,
+					KeepAlive: 30 * time.Second,
+				}).DialContext,
+			}
+			
+			log.Printf("Forwarding management request to function controller: %s", r.URL.Path)
+			proxy.ServeHTTP(w, r)
+		} else {
+			// This is a function invocation, use the function handler
+			functionHandler.ServeHTTP(w, r)
+		}
+	})
+
 	// Set up routes
 	mux := http.NewServeMux()
-	mux.Handle("/function/", corsMiddleware(authMiddleware(functionHandler)))
+	mux.Handle("/function/", corsMiddleware(authMiddleware(functionControllerHandler)))
 	mux.Handle("/register", corsMiddleware(authMiddleware(registerHandler)))
 	mux.Handle("/list", corsMiddleware(authMiddleware(listHandler)))
 

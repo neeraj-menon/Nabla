@@ -5,15 +5,30 @@ const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080';
 const BUILDER_URL = process.env.REACT_APP_BUILDER_URL || 'http://localhost:8082';
 const CONTROLLER_URL = process.env.REACT_APP_CONTROLLER_URL || 'http://localhost:8081';
 
-// Default auth token (for development)
-const AUTH_TOKEN = process.env.REACT_APP_AUTH_TOKEN || 'dev-token';
-
 // Create axios instance with default config
 const api = axios.create({
   headers: {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${AUTH_TOKEN}`
+    'Content-Type': 'application/json'
   }
+});
+
+// Add a request interceptor to include the auth token from localStorage
+api.interceptors.request.use(config => {
+  // Get token from localStorage
+  const token = localStorage.getItem('token');
+  
+  // If token exists, add it to the request headers
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  } else {
+    // Fallback to dev token for development
+    const devToken = process.env.REACT_APP_AUTH_TOKEN || 'dev-token';
+    config.headers.Authorization = `Bearer ${devToken}`;
+  }
+  
+  return config;
+}, error => {
+  return Promise.reject(error);
 });
 
 // Function API calls
@@ -21,8 +36,8 @@ export const functionService = {
   // Get all functions
   listFunctions: async () => {
     try {
-      // Use the function controller's list endpoint directly for more accurate status
-      const response = await api.get(`${CONTROLLER_URL}/list`);
+      // Route through API Gateway to ensure user ID is passed correctly
+      const response = await api.get(`${API_URL}/function/list`);
       console.debug('Function list response:', response.data);
       return response.data;
     } catch (error) {
@@ -95,12 +110,13 @@ export const functionService = {
       console.debug(`Getting code for function ${name}`);
       
       // Use axios to get the file with responseType blob
+      const token = localStorage.getItem('token') || process.env.REACT_APP_AUTH_TOKEN || 'dev-token';
       const response = await axios({
         method: 'GET',
         url: `${BUILDER_URL}/get-function-code/${name}`,
         responseType: 'blob',
         headers: {
-          'Authorization': `Bearer ${AUTH_TOKEN}`
+          'Authorization': `Bearer ${token}`
         }
       });
       
@@ -120,10 +136,11 @@ export const functionService = {
       formData.append('name', name);
       
       // Use different headers for file upload
+      const token = localStorage.getItem('token') || process.env.REACT_APP_AUTH_TOKEN || 'dev-token';
       const response = await axios.post(`${BUILDER_URL}/build`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
-          'Authorization': `Bearer ${AUTH_TOKEN}`
+          'Authorization': `Bearer ${token}`
         }
       });
       
@@ -138,7 +155,8 @@ export const functionService = {
       }
       
       // Always register with Function Controller to update the image
-      await api.post(`${CONTROLLER_URL}/register`, {
+      // Use the API Gateway as a proxy to ensure user ID is passed correctly
+      await api.post(`${API_URL}/function/register`, {
         name: name,
         image: response.data.image,
         port: 0  // Let the controller assign a port
@@ -154,7 +172,8 @@ export const functionService = {
   // Start a function
   startFunction: async (name) => {
     try {
-      const response = await api.post(`${CONTROLLER_URL}/start/${name}`);
+      // Route through API Gateway to ensure user ID is passed correctly
+      const response = await api.post(`${API_URL}/function/start/${name}`);
       console.debug(`Start function ${name} response:`, response.data);
       return response.data;
     } catch (error) {
@@ -166,7 +185,8 @@ export const functionService = {
   // Stop a function
   stopFunction: async (name) => {
     try {
-      const response = await api.post(`${CONTROLLER_URL}/stop/${name}`);
+      // Route through API Gateway to ensure user ID is passed correctly
+      const response = await api.post(`${API_URL}/function/stop/${name}`);
       console.debug(`Stop function ${name} response:`, response.data);
       return response.data;
     } catch (error) {
@@ -197,8 +217,8 @@ export const functionService = {
   // Delete a function
   deleteFunction: async (name) => {
     try {
-      // Using POST instead of DELETE to avoid potential CORS or framework limitations
-      const response = await api.post(`${CONTROLLER_URL}/delete/${name}`);
+      // Route through API Gateway to ensure user ID is passed correctly
+      const response = await api.delete(`${API_URL}/function/delete/${name}`);
       console.debug(`Delete function ${name} response:`, response.data);
       return response.data;
     } catch (error) {

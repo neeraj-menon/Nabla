@@ -24,6 +24,7 @@ type Function struct {
 	Container string            `json:"container,omitempty"`
 	Running   bool              `json:"running"`
 	Env       map[string]string `json:"env,omitempty"`
+	UserID    string            `json:"user_id,omitempty"`
 }
 
 // Function registry with persistence
@@ -43,7 +44,10 @@ func enableCors(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 	}
 	if w.Header().Get("Access-Control-Allow-Headers") == "" {
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-User-ID, X-Username")
+	}
+	if w.Header().Get("Access-Control-Expose-Headers") == "" {
+		w.Header().Set("Access-Control-Expose-Headers", "X-User-ID, X-Username")
 	}
 
 	// Handle preflight requests
@@ -258,11 +262,21 @@ func main() {
 			return
 		}
 
+		// Extract user ID from request headers
+		userID := r.Header.Get("X-User-ID")
+		if userID == "" {
+			http.Error(w, "User ID is required", http.StatusBadRequest)
+			return
+		}
+
 		var function Function
 		if err := json.NewDecoder(r.Body).Decode(&function); err != nil {
 			http.Error(w, "Invalid request body", http.StatusBadRequest)
 			return
 		}
+
+		// Set the user ID for the function
+		function.UserID = userID
 
 		// No need to assign ports with internal networking
 
@@ -301,6 +315,14 @@ func main() {
 
 		if !exists {
 			http.Error(w, fmt.Sprintf("Function '%s' not found", functionName), http.StatusNotFound)
+			return
+		}
+
+		// Extract user ID from request headers
+		userID := r.Header.Get("X-User-ID")
+		// Only check ownership if user ID is provided (for backward compatibility)
+		if userID != "" && function.UserID != "" && function.UserID != userID {
+			http.Error(w, "You do not have permission to invoke this function", http.StatusForbidden)
 			return
 		}
 
@@ -403,13 +425,31 @@ func main() {
 			return
 		}
 
+		// Extract user ID from request headers
+		userID := r.Header.Get("X-User-ID")
+
 		// Create a copy of the functions map to avoid long lock times
 		mutex.RLock()
 		functionsCopy := make(map[string]*Function)
 		for name, fn := range functions {
-			// Create a deep copy of each function
-			fnCopy := *fn
-			functionsCopy[name] = &fnCopy
+			// For backward compatibility, include functions without a user ID
+			// or functions owned by the requesting user
+			if fn.UserID == "" || fn.UserID == userID {
+				// Create a deep copy of each function
+				fnCopy := *fn
+				
+				// If the function doesn't have a user ID and we have a user ID,
+				// assign the current user as the owner for backward compatibility
+				if fn.UserID == "" && userID != "" {
+					log.Printf("Assigning user %s as owner of function %s for backward compatibility", userID, name)
+					fnCopy.UserID = userID
+					
+					// Update the original function in the registry
+					functions[name].UserID = userID
+				}
+				
+				functionsCopy[name] = &fnCopy
+			}
 		}
 		mutex.RUnlock()
 
@@ -447,6 +487,7 @@ func main() {
 			Running   bool              `json:"running"`
 			Env       map[string]string `json:"env,omitempty"`
 			Endpoint  string            `json:"endpoint"`
+			UserID    string            `json:"user_id,omitempty"`
 		}
 
 		// Create a map with function names as keys
@@ -454,7 +495,6 @@ func main() {
 		for _, fn := range functionsCopy {
 			// Create endpoint URL for the function
 			endpoint := fmt.Sprintf("/function/%s", fn.Name)
-			
 			responseMap[fn.Name] = FunctionResponse{
 				Name:      fn.Name,
 				Image:     fn.Image,
@@ -462,6 +502,7 @@ func main() {
 				Running:   fn.Running,
 				Env:       fn.Env,
 				Endpoint:  endpoint,
+				UserID:    fn.UserID,
 			}
 		}
 
@@ -485,6 +526,13 @@ func main() {
 			return
 		}
 
+		// Extract user ID from request headers
+		userID := r.Header.Get("X-User-ID")
+		if userID == "" {
+			http.Error(w, "User ID is required", http.StatusBadRequest)
+			return
+		}
+
 		functionName := strings.TrimPrefix(r.URL.Path, "/start/")
 
 		mutex.Lock()
@@ -493,6 +541,12 @@ func main() {
 		function, exists := functions[functionName]
 		if !exists {
 			http.Error(w, fmt.Sprintf("Function '%s' not found", functionName), http.StatusNotFound)
+			return
+		}
+
+		// Check if the user owns this function
+		if function.UserID != userID {
+			http.Error(w, "You do not have permission to start this function", http.StatusForbidden)
 			return
 		}
 
@@ -548,6 +602,13 @@ func main() {
 			return
 		}
 
+		// Extract user ID from request headers
+		userID := r.Header.Get("X-User-ID")
+		if userID == "" {
+			http.Error(w, "User ID is required", http.StatusBadRequest)
+			return
+		}
+
 		functionName := strings.TrimPrefix(r.URL.Path, "/stop/")
 
 		mutex.Lock()
@@ -556,6 +617,12 @@ func main() {
 		function, exists := functions[functionName]
 		if !exists {
 			http.Error(w, fmt.Sprintf("Function '%s' not found", functionName), http.StatusNotFound)
+			return
+		}
+
+		// Check if the user owns this function
+		if function.UserID != userID {
+			http.Error(w, "You do not have permission to stop this function", http.StatusForbidden)
 			return
 		}
 
@@ -605,16 +672,19 @@ func main() {
 			return
 		}
 
-		// Accept both DELETE and POST methods
-		if r.Method != http.MethodDelete && r.Method != http.MethodPost {
-			log.Printf("Method not allowed: %s", r.Method)
+		if r.Method != http.MethodDelete {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
-		// Extract function name from path
+		// Extract user ID from request headers
+		userID := r.Header.Get("X-User-ID")
+		if userID == "" {
+			http.Error(w, "User ID is required", http.StatusBadRequest)
+			return
+		}
+
 		functionName := strings.TrimPrefix(r.URL.Path, "/delete/")
-		log.Printf("Received delete request for function: %s", functionName)
 
 		mutex.Lock()
 		defer mutex.Unlock()
@@ -624,6 +694,13 @@ func main() {
 		if !exists {
 			log.Printf("Function '%s' not found for deletion", functionName)
 			http.Error(w, fmt.Sprintf("Function '%s' not found", functionName), http.StatusNotFound)
+			return
+		}
+
+		// Check if the user owns this function
+		if function.UserID != userID {
+			log.Printf("User %s attempted to delete function %s owned by %s", userID, functionName, function.UserID)
+			http.Error(w, "You do not have permission to delete this function", http.StatusForbidden)
 			return
 		}
 

@@ -196,7 +196,7 @@ function Dashboard() {
     }
   };
   
-  // Handle delete function
+  // Delete function implementation using the API service
   const handleDeleteFunction = async (name) => {
     console.log(`Delete button clicked for function: ${name}`);
     
@@ -223,55 +223,25 @@ function Dashboard() {
       // Reset confirmation state
       setDeleteConfirmation(null);
       
-      // Use XMLHttpRequest for maximum compatibility
-      return new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        const url = `${process.env.REACT_APP_CONTROLLER_URL || 'http://localhost:8081'}/delete/${name}`;
-        
-        console.log(`Sending DELETE request to ${url}`);
-        
-        xhr.open('DELETE', url, true);
-        xhr.setRequestHeader('Content-Type', 'application/json');
-        
-        xhr.onload = function() {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            console.log(`Delete successful: ${xhr.responseText}`);
-            
-            // Remove from UI after successful deletion
-            setFunctions(prev => {
-              const newFunctions = { ...prev };
-              delete newFunctions[name];
-              return newFunctions;
-            });
-            
-            // Show success message
-            setError(null);
-            
-            // Refresh the function list
-            setTimeout(() => {
-              fetchFunctions();
-            }, 1000);
-            
-            resolve(xhr.responseText);
-          } else {
-            console.error(`Delete failed with status ${xhr.status}: ${xhr.responseText}`);
-            setError(`Failed to delete function ${name}: Server returned ${xhr.status}`);
-            reject(new Error(`Server returned ${xhr.status}`));
-          }
-        };
-        
-        xhr.onerror = function() {
-          console.error('Delete request failed');
-          setError(`Failed to delete function ${name}: Network error`);
-          reject(new Error('Network error'));
-        };
-        
-        xhr.send();
-      })
-      .catch(err => {
-        console.error(`XMLHttpRequest error: ${err.message}`);
-        throw err;
+      // Use the API service to delete the function
+      console.log(`Using functionService.deleteFunction for ${name}`);
+      const response = await functionService.deleteFunction(name);
+      console.log(`Delete successful:`, response);
+      
+      // Remove from UI after successful deletion
+      setFunctions(prev => {
+        const newFunctions = { ...prev };
+        delete newFunctions[name];
+        return newFunctions;
       });
+      
+      // Show success message
+      setError(null);
+      
+      // Refresh the function list
+      setTimeout(() => {
+        fetchFunctions();
+      }, 1000);
     } catch (err) {
       console.error(`Failed to delete function ${name}:`, err);
       setError(`Failed to delete function ${name}: ${err.message || 'Unknown error'}`);
