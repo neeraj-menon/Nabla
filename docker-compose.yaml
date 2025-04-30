@@ -61,6 +61,19 @@ services:
     networks:
       - serverless-network
 
+  # Authentication Service
+  auth-service:
+    build:
+      context: ./auth-service
+    ports:
+      - "8084:8084"
+    volumes:
+      - auth-data:/app/data
+    environment:
+      - JWT_SECRET=your-secret-key-here
+    networks:
+      - serverless-network
+
   # Platform UI
   platform-ui:
     build:
@@ -72,12 +85,14 @@ services:
       - REACT_APP_BUILDER_URL=http://localhost:8082
       - REACT_APP_CONTROLLER_URL=http://localhost:8081
       - REACT_APP_FUNCTION_PROXY_URL=http://localhost:8090
+      - REACT_APP_AUTH_URL=http://localhost:8084
       - REACT_APP_AUTH_TOKEN=dev-token
     depends_on:
       - api-gateway
       - function-controller
       - builder
       - function-proxy
+      - auth-service
     networks:
       - serverless-network
 
@@ -169,3 +184,4 @@ networks:
 volumes:
   registry-data:
   function-data:
+  auth-data:

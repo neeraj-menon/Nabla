@@ -3,16 +3,26 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
 
-// Simple auth middleware for MVP
+// Auth service response for token validation
+type AuthResponse struct {
+	ID        string `json:"id"`
+	Username  string `json:"username"`
+	Email     string `json:"email"`
+	CreatedAt string `json:"created_at"`
+}
+
+// Auth middleware that validates JWT tokens with the auth service
 func authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check for Authorization header
@@ -22,13 +32,76 @@ func authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// Simple token validation for MVP
 		// Format: "Bearer TOKEN"
 		parts := strings.Split(authHeader, " ")
-		if len(parts) != 2 || parts[0] != "Bearer" || parts[1] != "dev-token" {
-			http.Error(w, "Invalid authorization token", http.StatusUnauthorized)
+		if len(parts) != 2 || parts[0] != "Bearer" {
+			http.Error(w, "Invalid authorization format", http.StatusUnauthorized)
 			return
 		}
+
+		token := parts[1]
+
+		// For backward compatibility during migration, accept dev-token
+		if token == "dev-token" {
+			// Create a context with default admin user
+			r.Header.Set("X-User-ID", "admin")
+			r.Header.Set("X-Username", "admin")
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Validate token with auth service
+		authServiceURL := os.Getenv("AUTH_SERVICE_URL")
+		if authServiceURL == "" {
+			authServiceURL = "http://auth-service:8084"
+		}
+
+		// Create request to auth service
+		req, err := http.NewRequest("GET", authServiceURL+"/auth/me", nil)
+		if err != nil {
+			log.Printf("Error creating auth request: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		// Forward the token to auth service
+		req.Header.Set("Authorization", authHeader)
+
+		// Send request to auth service
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Printf("Error validating token: %v", err)
+			http.Error(w, "Error validating token", http.StatusUnauthorized)
+			return
+		}
+		defer resp.Body.Close()
+
+		// Check response status
+		if resp.StatusCode != http.StatusOK {
+			log.Printf("Auth service returned non-200 status: %d", resp.StatusCode)
+			http.Error(w, "Invalid or expired token", http.StatusUnauthorized)
+			return
+		}
+
+		// Parse user info from response
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			log.Printf("Error reading auth response: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		var user AuthResponse
+		if err := json.Unmarshal(body, &user); err != nil {
+			log.Printf("Error parsing auth response: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		// Add user info to request headers for downstream services
+		r.Header.Set("X-User-ID", user.ID)
+		r.Header.Set("X-Username", user.Username)
 
 		// Token is valid, proceed
 		next.ServeHTTP(w, r)

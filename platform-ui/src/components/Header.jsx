@@ -1,10 +1,14 @@
-import React from 'react';
-import { AppBar, Toolbar, Typography, IconButton, Box, Avatar, Badge, InputBase } from '@mui/material';
-import { Notifications as NotificationsIcon, Search as SearchIcon } from '@mui/icons-material';
+import React, { useContext } from 'react';
+import { AppBar, Toolbar, Typography, IconButton, Box, Avatar, Badge, InputBase, Button } from '@mui/material';
+import { Notifications as NotificationsIcon, Search as SearchIcon, Logout as LogoutIcon } from '@mui/icons-material';
 import { useLocation } from 'react-router-dom';
+import { AuthContext } from '../contexts/AuthContext';
 
 function Header() {
   const location = useLocation();
+  const authContext = useContext(AuthContext);
+  const user = authContext?.user;
+  const logout = authContext?.logout;
   
   // Determine page title based on current route
   const getPageTitle = () => {
@@ -15,6 +19,13 @@ function Header() {
     if (path === '/logs') return 'Logs';
     if (path === '/settings') return 'Settings';
     return 'Serverless Platform';
+  };
+  
+  // Handle logout
+  const handleLogout = () => {
+    if (logout) {
+      logout();
+    }
   };
 
   return (
@@ -43,16 +54,27 @@ function Header() {
                 fontWeight: 'bold'
               }}
             >
-              A
+              {user ? user.username.charAt(0).toUpperCase() : 'G'}
             </Avatar>
             <Box sx={{ ml: 1, display: { xs: 'none', sm: 'block' } }}>
               <Typography variant="body2" sx={{ fontWeight: 'medium', lineHeight: 1.2 }}>
-                Admin User
+                {user ? user.username : 'Guest'}
               </Typography>
               <Typography variant="caption" sx={{ color: 'text.secondary', lineHeight: 1 }}>
-                Administrator
+                {user ? 'User' : 'Not logged in'}
               </Typography>
             </Box>
+            {user && (
+              <Button 
+                color="inherit" 
+                onClick={handleLogout} 
+                startIcon={<LogoutIcon />}
+                sx={{ ml: 2 }}
+                size="small"
+              >
+                Logout
+              </Button>
+            )}
           </Box>
         </Box>
       </Toolbar>

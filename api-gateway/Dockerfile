@@ -1,4 +1,4 @@
-FROM golang:1.17-alpine AS builder
+FROM golang:1.20-alpine AS builder
 
 WORKDIR /app
 
@@ -7,6 +7,7 @@ COPY src/ .
 
 # Build the application
 RUN go mod init api-gateway && \
+    go get github.com/golang-jwt/jwt/v4@v4.5.0 && \
     go mod tidy && \
     go build -o api-gateway server.go
 
