@@ -87,7 +87,7 @@ if __name__ == '__main__':
           },
           {
             name: 'requirements.txt',
-            content: 'flask==2.0.1',
+            content: 'flask==2.0.1\nwerkzeug==2.0.1',
             type: 'file'
           }
         ];

@@ -282,7 +282,9 @@ func main() {
 
 		// Store function in registry
 		mutex.Lock()
-		functions[function.Name] = &function
+		// Use composite key of userID + "-" + functionName to prevent collisions
+		functionKey := function.UserID + "-" + function.Name
+		functions[functionKey] = &function
 		mutex.Unlock()
 		
 		// Save registry to file
@@ -309,8 +311,29 @@ func main() {
 		path := strings.TrimPrefix(r.URL.Path, "/invoke/")
 		functionName := strings.Split(path, "/")[0]
 
+		// Extract user ID from request headers
+		userID := r.Header.Get("X-User-ID")
+
+		// Try to find the function using the composite key first
 		mutex.RLock()
-		function, exists := functions[functionName]
+		var function *Function
+		var exists bool
+		if userID != "" {
+			functionKey := userID + "-" + functionName
+			function, exists = functions[functionKey]
+		}
+
+		// If not found with composite key, try legacy lookup for backward compatibility
+		if !exists {
+			// Look for functions with matching name regardless of owner
+			for _, fn := range functions {
+				if fn.Name == functionName {
+					function = fn
+					exists = true
+					break
+				}
+			}
+		}
 		mutex.RUnlock()
 
 		if !exists {
@@ -318,8 +341,6 @@ func main() {
 			return
 		}
 
-		// Extract user ID from request headers
-		userID := r.Header.Get("X-User-ID")
 		// Only check ownership if user ID is provided (for backward compatibility)
 		if userID != "" && function.UserID != "" && function.UserID != userID {
 			http.Error(w, "You do not have permission to invoke this function", http.StatusForbidden)
@@ -431,7 +452,7 @@ func main() {
 		// Create a copy of the functions map to avoid long lock times
 		mutex.RLock()
 		functionsCopy := make(map[string]*Function)
-		for name, fn := range functions {
+		for key, fn := range functions {
 			// For backward compatibility, include functions without a user ID
 			// or functions owned by the requesting user
 			if fn.UserID == "" || fn.UserID == userID {
@@ -441,14 +462,18 @@ func main() {
 				// If the function doesn't have a user ID and we have a user ID,
 				// assign the current user as the owner for backward compatibility
 				if fn.UserID == "" && userID != "" {
-					log.Printf("Assigning user %s as owner of function %s for backward compatibility", userID, name)
+					log.Printf("Assigning user %s as owner of function %s for backward compatibility", userID, fn.Name)
 					fnCopy.UserID = userID
 					
 					// Update the original function in the registry
-					functions[name].UserID = userID
+					// Create new key with user ID
+					newKey := userID + "-" + fn.Name
+					functions[newKey] = &fnCopy
+					// Remove the old entry without user ID
+					delete(functions, key)
 				}
 				
-				functionsCopy[name] = &fnCopy
+				functionsCopy[fn.Name] = &fnCopy
 			}
 		}
 		mutex.RUnlock()
@@ -468,7 +493,9 @@ func main() {
 
 					// Also update the original
 					mutex.Lock()
-					if original, exists := functions[fn.Name]; exists {
+					// Use composite key to find the original function
+					functionKey := fn.UserID + "-" + fn.Name
+					if original, exists := functions[functionKey]; exists {
 						original.Running = actuallyRunning
 						if !actuallyRunning {
 							original.Container = ""
@@ -538,7 +565,9 @@ func main() {
 		mutex.Lock()
 		defer mutex.Unlock()
 
-		function, exists := functions[functionName]
+		// Use composite key to find the function
+		functionKey := userID + "-" + functionName
+		function, exists := functions[functionKey]
 		if !exists {
 			http.Error(w, fmt.Sprintf("Function '%s' not found", functionName), http.StatusNotFound)
 			return
@@ -614,7 +643,9 @@ func main() {
 		mutex.Lock()
 		defer mutex.Unlock()
 
-		function, exists := functions[functionName]
+		// Use composite key to find the function
+		functionKey := userID + "-" + functionName
+		function, exists := functions[functionKey]
 		if !exists {
 			http.Error(w, fmt.Sprintf("Function '%s' not found", functionName), http.StatusNotFound)
 			return
@@ -689,8 +720,9 @@ func main() {
 		mutex.Lock()
 		defer mutex.Unlock()
 
-		// Check if function exists
-		function, exists := functions[functionName]
+		// Use composite key to find the function
+		functionKey := userID + "-" + functionName
+		function, exists := functions[functionKey]
 		if !exists {
 			log.Printf("Function '%s' not found for deletion", functionName)
 			http.Error(w, fmt.Sprintf("Function '%s' not found", functionName), http.StatusNotFound)
@@ -718,8 +750,8 @@ func main() {
 			}
 		}
 
-		// Remove the function from the registry
-		delete(functions, functionName)
+		// Delete the function from the registry
+		delete(functions, functionKey)
 		log.Printf("Function '%s' removed from registry", functionName)
 		
 		// Save registry to file
