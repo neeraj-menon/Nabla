@@ -49,6 +49,8 @@ type Project struct {
 	Services    map[string]ServiceStatus
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
+	UserID      string                 // User ID of the project owner
+	Username    string                 // Username of the project owner
 }
 
 // ServiceStatus represents the status of a deployed service

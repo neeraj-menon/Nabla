@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/neeraj-menon/Nabla/project-orchestrator/auth"
 	"github.com/neeraj-menon/Nabla/project-orchestrator/dns"
 	"github.com/neeraj-menon/Nabla/project-orchestrator/handlers"
 	"github.com/neeraj-menon/Nabla/project-orchestrator/models"
@@ -26,13 +27,15 @@ type ProjectResponse struct {
 	CreatedAt   string                 `json:"createdAt"`
 	UpdatedAt   string                 `json:"updatedAt"`
 	Description string                 `json:"description,omitempty"`
+	UserID      string                 `json:"user_id,omitempty"`
+	Username    string                 `json:"username,omitempty"`
 }
 
 // ServiceInfo represents the API response for a service
 type ServiceInfo struct {
 	Type      string `json:"type"`
 	Status    string `json:"status"`
-	URL       string `json:"url,omitempty"`       // Internal URL (will be deprecated)
+	URL       string `json:"url,omitempty"` // Internal URL (will be deprecated)
 	Port      int    `json:"port,omitempty"`
 	PublicURL string `json:"publicUrl,omitempty"` // Public URL via NGINX
 	Subdomain string `json:"subdomain,omitempty"` // Subdomain for the service
@@ -56,17 +59,17 @@ func initNginxConfig() {
 // initDNSManager initializes the DNS manager
 func initDNSManager() {
 	dnsManager = dns.NewDNSManager()
-	
+
 	// Ensure the zone file exists
 	if err := dnsManager.EnsureZoneFile(); err != nil {
 		log.Printf("Warning: failed to ensure zone file: %v", err)
 	}
-	
+
 	log.Printf("Initialized DNS manager")
 }
 
 // processProject handles the building and deployment of a project
-func processProject(projectName, projectDir string) {
+func processProject(projectName, projectDir string, userID, username string) {
 	log.Printf("Processing project %s in directory %s", projectName, projectDir)
 
 	// Look for project manifest
@@ -96,8 +99,8 @@ func processProject(projectName, projectDir string) {
 		log.Printf("Using manifest name as project name: %s", projectName)
 	}
 
-	// Build the project
-	project, err := handlers.BuildHandler(projectDir, manifest)
+	// Build the project with user information
+	project, err := handlers.BuildHandler(projectDir, manifest, userID, username)
 	if err != nil {
 		log.Printf("Error building project: %v", err)
 		return
@@ -107,11 +110,18 @@ func processProject(projectName, projectDir string) {
 	project.Name = manifest.Name
 	log.Printf("Setting project name to manifest name: %s", project.Name)
 
-	// Add to active projects using the manifest name as the key
+	// Set user information
+	project.UserID = userID
+	project.Username = username
+	log.Printf("Setting project owner: user ID %s, username %s", userID, username)
+
+	// Add to active projects using a user-specific key format
 	projectsMutex.Lock()
-	activeProjects[project.Name] = project
+	// Create a key that includes both user ID and project name to ensure uniqueness across users
+	projectKey := fmt.Sprintf("%s:%s", userID, project.Name)
+	activeProjects[projectKey] = project
 	projectsMutex.Unlock()
-	log.Printf("Added project to activeProjects with key: %s", project.Name)
+	log.Printf("Added project to activeProjects with key: %s", projectKey)
 
 	// Deploy the project
 	if err := handlers.DeployHandler(project); err != nil {
@@ -129,52 +139,140 @@ func loadExistingProjects() {
 	// Get the projects directory
 	projectsDir := "./projects"
 
-	// List all directories in the projects directory
-	entries, err := os.ReadDir(projectsDir)
+	// List all user directories in the projects directory
+	userEntries, err := os.ReadDir(projectsDir)
 	if err != nil {
 		log.Printf("Error reading projects directory: %v", err)
 		return
 	}
 
-	// Process each directory
-	for _, entry := range entries {
-		if entry.IsDir() {
-			projectName := entry.Name()
-			projectDir := filepath.Join(projectsDir, projectName)
+	// Process each user directory
+	for _, userEntry := range userEntries {
+		if userEntry.IsDir() {
+			userID := userEntry.Name()
+			userDir := filepath.Join(projectsDir, userID)
 
-			// Check for status.json
-			statusFile := filepath.Join(projectDir, "status.json")
-			if _, err := os.Stat(statusFile); err == nil {
-				// Read the status file
-				data, err := os.ReadFile(statusFile)
-				if err != nil {
-					log.Printf("Error reading status file for project %s: %v", projectName, err)
+			// List all project directories for this user
+			projectEntries, err := os.ReadDir(userDir)
+			if err != nil {
+				log.Printf("Error reading user directory %s: %v", userID, err)
+				continue
+			}
+
+			// Process each project directory
+			for _, projectEntry := range projectEntries {
+				if projectEntry.IsDir() {
+					projectName := projectEntry.Name()
+					projectDir := filepath.Join(userDir, projectName)
+
+					// Check for status.json
+					statusFile := filepath.Join(projectDir, "status.json")
+					if _, err := os.Stat(statusFile); err == nil {
+						// Read the status file
+						data, err := os.ReadFile(statusFile)
+						if err != nil {
+							log.Printf("Error reading status file for project %s: %v", projectName, err)
+							continue
+						}
+
+						// Parse the status file
+						var project models.Project
+						if err := json.Unmarshal(data, &project); err != nil {
+							log.Printf("Error parsing status file for project %s: %v", projectName, err)
+							continue
+						}
+
+						// Store the directory name in the project for reference
+						project.Path = projectDir
+
+						// Ensure user information is set
+						if project.UserID == "" {
+							project.UserID = userID
+						}
+
+						// Create a unique key that includes both user ID and project name
+						projectKey := fmt.Sprintf("%s:%s", userID, projectName)
+
+						projectsMutex.Lock()
+						log.Printf("Loading project from directory %s/%s with manifest name %s", userID, projectName, project.Name)
+						activeProjects[projectKey] = &project
+						projectsMutex.Unlock()
+
+						log.Printf("Loaded project %s for user %s with status %s", project.Name, userID, project.Status)
+					}
+				}
+			}
+		}
+	}
+
+	// Also load legacy projects (not in user directories)
+	legacyEntries, err := os.ReadDir(projectsDir)
+	if err == nil {
+		for _, entry := range legacyEntries {
+			if entry.IsDir() && !strings.Contains(entry.Name(), ":") {
+				projectName := entry.Name()
+				projectDir := filepath.Join(projectsDir, projectName)
+
+				// Skip if it's a user directory (we already processed those)
+				if isUserDirectory(projectDir) {
 					continue
 				}
 
-				// Parse the status file
-				var project models.Project
-				if err := json.Unmarshal(data, &project); err != nil {
-					log.Printf("Error parsing status file for project %s: %v", projectName, err)
-					continue
+				// Check for status.json
+				statusFile := filepath.Join(projectDir, "status.json")
+				if _, err := os.Stat(statusFile); err == nil {
+					// Read the status file
+					data, err := os.ReadFile(statusFile)
+					if err != nil {
+						log.Printf("Error reading status file for legacy project %s: %v", projectName, err)
+						continue
+					}
+
+					// Parse the status file
+					var project models.Project
+					if err := json.Unmarshal(data, &project); err != nil {
+						log.Printf("Error parsing status file for legacy project %s: %v", projectName, err)
+						continue
+					}
+
+					// Store the directory name in the project for reference
+					project.Path = projectDir
+
+					projectsMutex.Lock()
+					log.Printf("Loading legacy project from directory %s with manifest name %s", projectName, project.Name)
+					activeProjects[projectName] = &project
+					projectsMutex.Unlock()
+
+					log.Printf("Loaded legacy project %s with status %s", project.Name, project.Status)
 				}
-
-				// Always use directory name as the key to avoid collisions
-				projectsMutex.Lock()
-				// Store the directory name in the project for reference
-				project.Path = projectDir
-				
-				// Use directory name as the key to avoid collisions with projects that have the same manifest name
-				log.Printf("Loading project from directory %s with manifest name %s", projectName, project.Name)
-				activeProjects[projectName] = &project
-				projectsMutex.Unlock()
-
-				log.Printf("Loaded project %s with status %s", project.Name, project.Status)
 			}
 		}
 	}
 
 	log.Printf("Loaded %d existing projects", len(activeProjects))
+}
+
+// isUserDirectory checks if a directory is a user directory by looking for project subdirectories
+func isUserDirectory(dirPath string) bool {
+	entries, err := os.ReadDir(dirPath)
+	if err != nil {
+		return false
+	}
+
+	// If this directory contains status.json files or subdirectories with status.json files,
+	// it's likely a project directory, not a user directory
+	for _, entry := range entries {
+		if entry.IsDir() {
+			statusPath := filepath.Join(dirPath, entry.Name(), "status.json")
+			if _, err := os.Stat(statusPath); err == nil {
+				return true
+			}
+		} else if entry.Name() == "status.json" {
+			return true
+		}
+	}
+
+	return false
 }
 
 // getProjectNames returns a list of all project names
@@ -193,6 +291,8 @@ func projectToResponse(project *models.Project) ProjectResponse {
 		CreatedAt:   project.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:   project.UpdatedAt.Format(time.RFC3339),
 		Description: project.Manifest.Description,
+		UserID:      project.UserID,
+		Username:    project.Username,
 		Services:    make(map[string]ServiceInfo),
 	}
 
@@ -254,23 +354,23 @@ func saveProjectStatus(project *models.Project) error {
 	} else {
 		projectDir = filepath.Join("./projects", project.Name)
 	}
-	
+
 	statusFile := filepath.Join(projectDir, "status.json")
-	
+
 	// Marshal the project to JSON
 	data, err := json.MarshalIndent(project, "", "  ")
 	if err != nil {
 		log.Printf("Error marshaling project %s: %v", project.Name, err)
 		return err
 	}
-	
+
 	// Write to the status file
 	err = os.WriteFile(statusFile, data, 0644)
 	if err != nil {
 		log.Printf("Error writing status file for project %s: %v", project.Name, err)
 		return err
 	}
-	
+
 	log.Printf("Updated status file for project %s", project.Name)
 	return nil
 }
@@ -295,31 +395,6 @@ func corsMiddleware(next http.Handler) http.Handler {
 }
 
 func main() {
-	// Initialize NGINX configuration
-	initNginxConfig()
-	
-	// Initialize DNS manager
-	initDNSManager()
-
-	// Load existing projects
-	loadExistingProjects()
-
-	// Set the NGINX manager in the handlers package
-	handlers.SetNginxManager(nginxConfig)
-	
-	// Set the DNS manager in the handlers package
-	handlers.SetDNSManager(dnsManager)
-
-	// Set up logging
-	log.SetFlags(log.LstdFlags)
-	log.Println("Starting Project Orchestrator service...")
-
-	// Clean up duplicate projects
-	CleanupDuplicateProjects()
-
-	// Load existing projects
-	loadExistingProjects()
-
 	// Create projects directory if it doesn't exist
 	projectsDir := "./projects"
 	err := os.MkdirAll(projectsDir, 0755)
@@ -330,22 +405,36 @@ func main() {
 	// Load existing projects
 	loadExistingProjects()
 
-	// Create router
-	router := http.NewServeMux()
+	// Initialize NGINX configuration manager
+	initNginxConfig()
 
-	// Set up HTTP routes
-	router.HandleFunc("/health", healthCheckHandler)
-	router.HandleFunc("/upload", uploadProjectHandler)
-	router.HandleFunc("/projects", listProjectsHandler)
-	router.HandleFunc("/projects/", projectHandler)
+	// Initialize DNS manager
+	initDNSManager()
 
-	// Start server with CORS middleware
+	// Set up HTTP server
+	mux := http.NewServeMux()
+
+	// Public endpoints (no auth required)
+	mux.HandleFunc("/health", healthCheckHandler)
+
+	// Protected endpoints (auth required)
+	mux.Handle("/upload", corsMiddleware(auth.AuthMiddleware(http.HandlerFunc(uploadProjectHandler))))
+	mux.Handle("/projects", corsMiddleware(auth.AuthMiddleware(http.HandlerFunc(listProjectsHandler))))
+	mux.Handle("/projects/", corsMiddleware(auth.AuthMiddleware(http.HandlerFunc(projectHandler))))
+
+	// Set the NGINX manager in the handlers package
+	handlers.SetNginxManager(nginxConfig)
+
+	// Set the DNS manager in the handlers package
+	handlers.SetDNSManager(dnsManager)
+
+	// Start server
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8085"
 	}
 	log.Printf("Starting server on port %s...", port)
-	log.Fatal(http.ListenAndServe(":"+port, corsMiddleware(router)))
+	log.Fatal(http.ListenAndServe(":"+port, corsMiddleware(mux)))
 }
 
 // healthCheckHandler returns a simple health check response
@@ -356,13 +445,20 @@ func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 
 // uploadProjectHandler handles project zip file uploads
 func uploadProjectHandler(w http.ResponseWriter, r *http.Request) {
+	// Extract user ID from request headers
+	userID := auth.GetUserID(r)
+	username := auth.GetUsername(r)
+	if userID == "" {
+		http.Error(w, "User ID is required", http.StatusBadRequest)
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Use the handlers.UploadHandler
-	projectName, projectDir, err := handlers.UploadHandler(w, r)
+	// Use the handlers.UploadHandler with user information
+	projectName, projectDir, err := handlers.UploadHandler(w, r, userID, username)
 	if err != nil {
 		// Error is already handled by the UploadHandler
 		return
@@ -381,11 +477,13 @@ func uploadProjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Process the project asynchronously
-	go processProject(projectName, projectDir)
+	go processProject(projectName, projectDir, userID, username)
 }
 
 // listProjectsHandler returns a list of all deployed projects
 func listProjectsHandler(w http.ResponseWriter, r *http.Request) {
+	// Extract user ID from request headers
+	userID := auth.GetUserID(r)
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -394,37 +492,52 @@ func listProjectsHandler(w http.ResponseWriter, r *http.Request) {
 	// Create a copy of the projects map to avoid long lock times
 	projectsMutex.RLock()
 	projectsCopy := make(map[string]*models.Project)
-	for name, proj := range activeProjects {
+	for key, proj := range activeProjects {
 		// Create a deep copy of each project
 		projCopy := *proj
-		projectsCopy[name] = &projCopy
+		projectsCopy[key] = &projCopy
 	}
 	projectsMutex.RUnlock()
 
 	// Convert projects to responses with status verification
 	projects := make([]ProjectResponse, 0, len(projectsCopy))
-	for _, project := range projectsCopy {
-		response := projectToResponse(project)
-		
-		// If status changed, update the original project in the map
-		if project.Status != response.Status {
-			projectsMutex.Lock()
-			if original, exists := activeProjects[project.Name]; exists {
-				original.Status = response.Status
-				// Also update services status
-				for name, service := range project.Services {
-					if original.Services[name].Status != service.Status {
-						// Need to get the service, update it, then put it back in the map
-						updatedService := original.Services[name]
-						updatedService.Status = service.Status
-						original.Services[name] = updatedService
+	for key, project := range projectsCopy {
+		// Check if this is a user-specific project key (format: "userID:projectName")
+		keyParts := strings.SplitN(key, ":", 2)
+
+		// Filter projects by user ID
+		// Include projects if and only if:
+		// 1. The project belongs to the current user (UserID field matches) OR
+		// 2. The project has a user-specific key for the current user OR
+		// 3. The project has no user ID (backward compatibility) AND is not in a user-specific directory
+		belongsToUser := project.UserID == userID
+		hasUserSpecificKey := len(keyParts) == 2 && keyParts[0] == userID
+		isLegacyProject := project.UserID == "" && len(keyParts) == 1
+
+		if belongsToUser || hasUserSpecificKey || isLegacyProject {
+			response := projectToResponse(project)
+
+			// If status changed, update the original project in the map
+			if project.Status != response.Status {
+				projectsMutex.Lock()
+				// Use the same key that was used in the projectsCopy map
+				if original, exists := activeProjects[key]; exists {
+					original.Status = response.Status
+					// Also update services status
+					for name, service := range project.Services {
+						if original.Services[name].Status != service.Status {
+							// Need to get the service, update it, then put it back in the map
+							updatedService := original.Services[name]
+							updatedService.Status = service.Status
+							original.Services[name] = updatedService
+						}
 					}
 				}
+				projectsMutex.Unlock()
 			}
-			projectsMutex.Unlock()
+
+			projects = append(projects, response)
 		}
-		
-		projects = append(projects, response)
 	}
 
 	// Return the list of projects
@@ -464,39 +577,70 @@ func projectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// findProject looks up a project by name or directory name
-func findProject(projectName string) (*models.Project, string, bool) {
+// findProject looks up a project by name or directory name, considering user ID
+func findProject(projectName string, userID string) (*models.Project, string, bool) {
 	projectsMutex.RLock()
 	defer projectsMutex.RUnlock()
-	
-	// First try direct lookup by directory name
-	project, exists := activeProjects[projectName]
-	if exists {
-		return project, projectName, true
+
+	// Create a user-specific project key
+	userProjectKey := fmt.Sprintf("%s:%s", userID, projectName)
+
+	// First, try to find the project by its user-specific key
+	if project, ok := activeProjects[userProjectKey]; ok {
+		return project, userProjectKey, true
 	}
-	
-	// If not found, search by manifest name or project name
-	for key, p := range activeProjects {
-		if p.Name == projectName || (p.Manifest != nil && p.Manifest.Name == projectName) {
-			return p, key, true
+
+	// If not found and we have a user ID, try to find a project with a matching manifest name owned by this user
+	if userID != "" {
+		for key, project := range activeProjects {
+			// Only consider projects owned by this user
+			if project.UserID == userID && project.Name == projectName {
+				return project, key, true
+			}
 		}
 	}
-	
+
+	// For backward compatibility, try to find the project by its key without user prefix
+	if project, ok := activeProjects[projectName]; ok {
+		// If the project doesn't have a user ID or the user ID matches, return it
+		if project.UserID == "" || project.UserID == userID {
+			return project, projectName, true
+		}
+	}
+
+	// If still not found and no user ID restriction, try to find any project with a matching manifest name
+	if userID == "" {
+		for key, project := range activeProjects {
+			if project.Name == projectName {
+				return project, key, true
+			}
+		}
+	}
+
+	// Project not found
 	return nil, "", false
 }
 
 // getProjectHandler returns details about a specific project
-func getProjectHandler(w http.ResponseWriter, _ *http.Request, projectName string) {
+func getProjectHandler(w http.ResponseWriter, r *http.Request, projectName string) {
+	// Extract user ID from request headers
+	userID := auth.GetUserID(r)
 	log.Printf("Getting project details for: %s", projectName)
 
 	// Log all available projects for debugging
 	log.Printf("Available projects: %v", getProjectNames())
 
 	// Find the project
-	project, _, exists := findProject(projectName)
+	project, _, exists := findProject(projectName, userID)
 
 	if !exists {
 		http.Error(w, fmt.Sprintf("Project %s not found", projectName), http.StatusNotFound)
+		return
+	}
+
+	// Check if the user has permission to view this project
+	if project.UserID != "" && project.UserID != userID {
+		http.Error(w, "You do not have permission to view this project", http.StatusForbidden)
 		return
 	}
 
@@ -506,7 +650,9 @@ func getProjectHandler(w http.ResponseWriter, _ *http.Request, projectName strin
 }
 
 // deleteProjectHandler deletes a project
-func deleteProjectHandler(w http.ResponseWriter, _ *http.Request, projectName string) {
+func deleteProjectHandler(w http.ResponseWriter, r *http.Request, projectName string) {
+	// Extract user ID from request headers
+	userID := auth.GetUserID(r)
 	// Log the requested project name
 	log.Printf("Deleting project: %s", projectName)
 
@@ -514,10 +660,16 @@ func deleteProjectHandler(w http.ResponseWriter, _ *http.Request, projectName st
 	log.Printf("Available projects: %v", getProjectNames())
 
 	// Find the project
-	project, projectKey, exists := findProject(projectName)
+	project, projectKey, exists := findProject(projectName, userID)
 
 	if !exists {
 		http.Error(w, fmt.Sprintf("Project %s not found", projectName), http.StatusNotFound)
+		return
+	}
+
+	// Check if the user has permission to delete this project
+	if project.UserID != "" && project.UserID != userID {
+		http.Error(w, "You do not have permission to delete this project", http.StatusForbidden)
 		return
 	}
 
@@ -525,19 +677,19 @@ func deleteProjectHandler(w http.ResponseWriter, _ *http.Request, projectName st
 	for name, service := range project.Services {
 		if service.ContainerID != "" {
 			log.Printf("Stopping container %s for service %s", service.ContainerID, name)
-			
+
 			// Stop the container
 			stopCmd := exec.Command("docker", "stop", service.ContainerID)
 			if err := stopCmd.Run(); err != nil {
 				log.Printf("Error stopping container %s: %v", service.ContainerID, err)
 			}
-			
+
 			// Remove the container
 			removeCmd := exec.Command("docker", "rm", "-f", service.ContainerID)
 			if err := removeCmd.Run(); err != nil {
 				log.Printf("Error removing container %s: %v", service.ContainerID, err)
 			}
-			
+
 			// Try to remove any associated images based on naming convention
 			if service.Type == "api" {
 				imageName := fmt.Sprintf("%s-%s:latest", project.Name, name)
@@ -580,7 +732,7 @@ func deleteProjectHandler(w http.ResponseWriter, _ *http.Request, projectName st
 				if entry.IsDir() {
 					dirPath := filepath.Join("./projects", entry.Name())
 					statusFile := filepath.Join(dirPath, "status.json")
-					
+
 					// Check if this directory has a status.json file for this project
 					if _, err := os.Stat(statusFile); err == nil {
 						data, err := os.ReadFile(statusFile)
@@ -597,7 +749,7 @@ func deleteProjectHandler(w http.ResponseWriter, _ *http.Request, projectName st
 				}
 			}
 		}
-		
+
 		// If we still don't have a directory, use the project name
 		if projectDir == "" {
 			projectDir = filepath.Join("./projects", project.Name)
@@ -613,7 +765,7 @@ func deleteProjectHandler(w http.ResponseWriter, _ *http.Request, projectName st
 	// Remove any associated Docker network
 	if networkName := fmt.Sprintf("project-%s-network", project.Name); networkName != "" {
 		log.Printf("Checking for network: %s", networkName)
-		
+
 		// First check if network exists
 		checkNetworkCmd := exec.Command("docker", "network", "ls", "--filter", fmt.Sprintf("name=%s", networkName), "--format", "{{.Name}}")
 		output, err := checkNetworkCmd.CombinedOutput()
@@ -622,7 +774,7 @@ func deleteProjectHandler(w http.ResponseWriter, _ *http.Request, projectName st
 		} else {
 			if strings.TrimSpace(string(output)) == networkName {
 				log.Printf("Network %s found, attempting to disconnect containers", networkName)
-				
+
 				// First disconnect the NGINX container from the network
 				disconnectNginxCmd := exec.Command("docker", "network", "disconnect", "--force", networkName, "platform-repository-nginx-1")
 				if err := disconnectNginxCmd.Run(); err != nil {
@@ -630,7 +782,7 @@ func deleteProjectHandler(w http.ResponseWriter, _ *http.Request, projectName st
 				} else {
 					log.Printf("Successfully disconnected NGINX from network %s", networkName)
 				}
-				
+
 				// Get all containers connected to the network
 				listContainersCmd := exec.Command("docker", "network", "inspect", networkName, "--format", "{{range .Containers}}{{.Name}} {{end}}")
 				containersOutput, err := listContainersCmd.CombinedOutput()
@@ -644,7 +796,7 @@ func deleteProjectHandler(w http.ResponseWriter, _ *http.Request, projectName st
 						}
 					}
 				}
-				
+
 				// Now try to remove the network
 				removeNetworkCmd := exec.Command("docker", "network", "rm", networkName)
 				if err := removeNetworkCmd.Run(); err != nil {
@@ -667,7 +819,9 @@ func deleteProjectHandler(w http.ResponseWriter, _ *http.Request, projectName st
 }
 
 // stopProjectHandler stops all services in a project
-func stopProjectHandler(w http.ResponseWriter, _ *http.Request, projectName string) {
+func stopProjectHandler(w http.ResponseWriter, r *http.Request, projectName string) {
+	// Extract user ID from request headers
+	userID := auth.GetUserID(r)
 	// Log the requested project name
 	log.Printf("Stopping project: %s", projectName)
 
@@ -675,13 +829,19 @@ func stopProjectHandler(w http.ResponseWriter, _ *http.Request, projectName stri
 	log.Printf("Available projects: %v", getProjectNames())
 
 	// Find the project
-	project, _, exists := findProject(projectName)
+	project, _, exists := findProject(projectName, userID)
 
 	if !exists {
 		http.Error(w, fmt.Sprintf("Project %s not found", projectName), http.StatusNotFound)
 		return
 	}
-	
+
+	// Check if the user has permission to stop this project
+	if project.UserID != "" && project.UserID != userID {
+		http.Error(w, "You do not have permission to stop this project", http.StatusForbidden)
+		return
+	}
+
 	projectsMutex.Lock()
 	// Stop all containers
 	for name, service := range project.Services {
@@ -689,7 +849,7 @@ func stopProjectHandler(w http.ResponseWriter, _ *http.Request, projectName stri
 			log.Printf("Stopping container %s for service %s", service.ContainerID, name)
 			exec.Command("docker", "stop", service.ContainerID).Run()
 			exec.Command("docker", "rm", service.ContainerID).Run()
-			
+
 			// Update service status
 			service.Status = "stopped"
 			project.Services[name] = service
@@ -710,7 +870,9 @@ func stopProjectHandler(w http.ResponseWriter, _ *http.Request, projectName stri
 }
 
 // startProjectHandler starts all services in a project
-func startProjectHandler(w http.ResponseWriter, _ *http.Request, projectName string) {
+func startProjectHandler(w http.ResponseWriter, r *http.Request, projectName string) {
+	// Extract user ID from request headers
+	userID := auth.GetUserID(r)
 	// Log the requested project name
 	log.Printf("Starting project: %s", projectName)
 
@@ -718,10 +880,25 @@ func startProjectHandler(w http.ResponseWriter, _ *http.Request, projectName str
 	log.Printf("Available projects: %v", getProjectNames())
 
 	// Find the project
-	project, _, exists := findProject(projectName)
+	project, _, exists := findProject(projectName, userID)
 
 	if !exists {
-		http.Error(w, fmt.Sprintf("Project %s not found", projectName), http.StatusNotFound)
+		http.Error(w, fmt.Sprintf("Project '%s' not found", projectName), http.StatusNotFound)
+		return
+	}
+
+	// Check if the user has permission to start this project
+	if project.UserID != "" && project.UserID != userID {
+		http.Error(w, "You do not have permission to start this project", http.StatusForbidden)
+		return
+	}
+
+	// Check if the project is already running
+	if project.Status == "running" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": fmt.Sprintf("Project '%s' is already running", projectName),
+		})
 		return
 	}
 

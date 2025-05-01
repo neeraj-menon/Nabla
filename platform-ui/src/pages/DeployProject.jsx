@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import api from '../services/api';
 import { 
   Box, 
   Button, 
@@ -17,7 +19,6 @@ import {
   Divider
 } from '@mui/material';
 import { CloudUpload as UploadIcon } from '@mui/icons-material';
-import { useNavigate } from 'react-router-dom';
 
 function DeployProject() {
   const [file, setFile] = useState(null);
@@ -50,23 +51,25 @@ function DeployProject() {
 
   const handleUpload = async () => {
     if (!file) {
-      setError('Please select a project file to upload');
+      setError('Please select a file to upload');
       return;
     }
 
-    setUploading(true);
-    setError(null);
-    setActiveStep(2);
-
     try {
+      setUploading(true);
+      setError(null);
+      setUploadProgress(0);
+
+      // Create form data
       const formData = new FormData();
       formData.append('project', file);
-      formData.append('name', projectName);
-      formData.append('description', description);
+      if (projectName) {
+        formData.append('name', projectName);
+      }
 
-      // Simulate upload progress
+      // Simulate progress
       const progressInterval = setInterval(() => {
-        setUploadProgress((prev) => {
+        setUploadProgress(prev => {
           if (prev >= 95) {
             clearInterval(progressInterval);
             return 95;
@@ -75,18 +78,27 @@ function DeployProject() {
         });
       }, 300);
 
-      // Replace with actual API call when project-orchestrator is ready
-      const response = await fetch(`${process.env.REACT_APP_ORCHESTRATOR_URL || 'http://localhost:8085'}/upload`, {
+      // Use direct fetch with explicit token handling
+      const ORCHESTRATOR_URL = process.env.REACT_APP_ORCHESTRATOR_URL || 'http://localhost:8085';
+      console.log('Uploading project to:', `${ORCHESTRATOR_URL}/upload`);
+      const token = localStorage.getItem('token');
+      console.log('Auth token available:', !!token);
+      
+      const response = await fetch(`${ORCHESTRATOR_URL}/upload`, {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
       });
 
       clearInterval(progressInterval);
       setUploadProgress(100);
-
+      
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to upload project');
+        const errorText = await response.text();
+        console.error('Upload error:', errorText);
+        throw new Error(`Failed to upload project: ${response.status}`);
       }
 
       const data = await response.json();

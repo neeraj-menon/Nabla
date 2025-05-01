@@ -14,7 +14,7 @@ import (
 )
 
 // BuildHandler handles the building of project components
-func BuildHandler(projectDir string, manifest *models.ProjectManifest) (*models.Project, error) {
+func BuildHandler(projectDir string, manifest *models.ProjectManifest, userID, username string) (*models.Project, error) {
 	log.Printf("Building project %s from directory %s", manifest.Name, projectDir)
 	
 	// Create a new project object
@@ -26,6 +26,8 @@ func BuildHandler(projectDir string, manifest *models.ProjectManifest) (*models.
 		Services:  make(map[string]models.ServiceStatus),
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
+		UserID:    userID,
+		Username:  username,
 	}
 	
 	// Build each service

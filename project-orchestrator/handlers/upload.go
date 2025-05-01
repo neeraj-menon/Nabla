@@ -13,7 +13,7 @@ import (
 )
 
 // UploadHandler handles project zip file uploads
-func UploadHandler(w http.ResponseWriter, r *http.Request) (string, string, error) {
+func UploadHandler(w http.ResponseWriter, r *http.Request, userID, username string) (string, string, error) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return "", "", fmt.Errorf("method not allowed")
@@ -48,8 +48,8 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) (string, string, erro
 		projectName = fmt.Sprintf("%s-%d", projectName, time.Now().Unix())
 	}
 
-	// Create project directory
-	projectDir := filepath.Join("projects", projectName)
+	// Create user-specific project directory
+	projectDir := filepath.Join("projects", userID, projectName)
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
 		log.Printf("Error creating project directory: %v", err)
 		http.Error(w, "Error creating project directory", http.StatusInternalServerError)

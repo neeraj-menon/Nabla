@@ -11,6 +11,8 @@ import FunctionDetail from './pages/FunctionDetail';
 import Logs from './pages/Logs';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
+import Projects from './pages/Projects';
+import DeployProject from './pages/DeployProject';
 
 // Import components
 import Sidebar from './components/Sidebar';
@@ -101,6 +103,22 @@ function App() {
               <ProtectedRoute>
                 <AuthenticatedLayout>
                   <Settings />
+                </AuthenticatedLayout>
+              </ProtectedRoute>
+            } />
+
+            <Route path="/projects" element={
+              <ProtectedRoute>
+                <AuthenticatedLayout>
+                  <Projects />
+                </AuthenticatedLayout>
+              </ProtectedRoute>
+            } />
+
+            <Route path="/deploy-project" element={
+              <ProtectedRoute>
+                <AuthenticatedLayout>
+                  <DeployProject />
                 </AuthenticatedLayout>
               </ProtectedRoute>
             } />

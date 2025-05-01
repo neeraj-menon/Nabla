@@ -36,16 +36,37 @@ import {
   Info as InfoIcon
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
+import api from '../services/api';
 
-// Project service for API calls
+// Define the orchestrator URL
+const ORCHESTRATOR_URL = process.env.REACT_APP_ORCHESTRATOR_URL || 'http://localhost:8085';
+
+// Create project service with direct fetch calls and explicit token handling
 const projectService = {
   listProjects: async () => {
     try {
-      const response = await fetch(`${process.env.REACT_APP_ORCHESTRATOR_URL || 'http://localhost:8085'}/projects`);
+      console.log('Making API request to:', `${ORCHESTRATOR_URL}/projects`);
+      const token = localStorage.getItem('token');
+      console.log('Auth token available:', !!token);
+      
+      // Use direct fetch with explicit token
+      const response = await fetch(`${ORCHESTRATOR_URL}/projects`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      console.log('Response status:', response.status);
+      
       if (!response.ok) {
         throw new Error(`Failed to fetch projects: ${response.status}`);
       }
-      return await response.json();
+      
+      const data = await response.json();
+      console.log('Projects received:', data);
+      return data;
     } catch (error) {
       console.error('Error fetching projects:', error);
       throw error;
@@ -54,10 +75,19 @@ const projectService = {
   
   getProject: async (name) => {
     try {
-      const response = await fetch(`${process.env.REACT_APP_ORCHESTRATOR_URL || 'http://localhost:8085'}/projects/${name}`);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${ORCHESTRATOR_URL}/projects/${name}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
       if (!response.ok) {
         throw new Error(`Failed to fetch project: ${response.status}`);
       }
+      
       return await response.json();
     } catch (error) {
       console.error(`Error fetching project ${name}:`, error);
@@ -67,12 +97,19 @@ const projectService = {
   
   startProject: async (name) => {
     try {
-      const response = await fetch(`${process.env.REACT_APP_ORCHESTRATOR_URL || 'http://localhost:8085'}/projects/${name}/start`, {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${ORCHESTRATOR_URL}/projects/${name}/start`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
       });
+      
       if (!response.ok) {
         throw new Error(`Failed to start project: ${response.status}`);
       }
+      
       return await response.json();
     } catch (error) {
       console.error(`Error starting project ${name}:`, error);
@@ -82,12 +119,19 @@ const projectService = {
   
   stopProject: async (name) => {
     try {
-      const response = await fetch(`${process.env.REACT_APP_ORCHESTRATOR_URL || 'http://localhost:8085'}/projects/${name}/stop`, {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${ORCHESTRATOR_URL}/projects/${name}/stop`, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
       });
+      
       if (!response.ok) {
         throw new Error(`Failed to stop project: ${response.status}`);
       }
+      
       return await response.json();
     } catch (error) {
       console.error(`Error stopping project ${name}:`, error);
@@ -97,12 +141,19 @@ const projectService = {
   
   deleteProject: async (name) => {
     try {
-      const response = await fetch(`${process.env.REACT_APP_ORCHESTRATOR_URL || 'http://localhost:8085'}/projects/${name}`, {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${ORCHESTRATOR_URL}/projects/${name}`, {
         method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
       });
+      
       if (!response.ok) {
         throw new Error(`Failed to delete project: ${response.status}`);
       }
+      
       return await response.json();
     } catch (error) {
       console.error(`Error deleting project ${name}:`, error);
@@ -156,6 +207,8 @@ const StatusChip = ({ status }) => {
 };
 
 function Projects() {
+  console.log('Projects component rendering');
+  
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -167,25 +220,30 @@ function Projects() {
   const [showDetails, setShowDetails] = useState(false);
   const navigate = useNavigate();
   
+  console.log('Projects component initialized');
+  
   // Fetch projects on component mount
   useEffect(() => {
+    console.log('Projects component mounted, fetching projects...');
     fetchProjects();
   }, []);
   
   // Fetch projects from API
   const fetchProjects = async () => {
+    setLoading(true);
+    setError(null);
     try {
-      setRefreshing(true);
-      setError(null);
-      const data = await projectService.listProjects();
-      setProjects(data);
+      console.log('Calling projectService.listProjects()...');
+      const projects = await projectService.listProjects();
+      console.log('Projects received:', projects);
+      setProjects(projects);
     } catch (err) {
       console.error('Error fetching projects:', err);
-      setError('Failed to fetch projects. Please try again.');
+      setError('Failed to load projects. Please try again.');
     } finally {
       setLoading(false);
-      setRefreshing(false);
-    }
+    }  
+    setRefreshing(false);
   };
   
   // Handle refresh button click
