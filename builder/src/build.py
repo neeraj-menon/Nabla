@@ -68,10 +68,14 @@ def inject_scaffold(source_dir, runtime):
     
     logger.info(f"Injected scaffold for {runtime}")
 
-def build_image(source_dir, function_name, runtime):
+def build_image(source_dir, function_name, runtime, user_id=None):
     """Build Docker image using Kaniko"""
     # For MVP, using local Docker build instead of Kaniko
-    image_name = f"{REGISTRY_URL}/{function_name}:latest"
+    # Include user_id in the image name if provided
+    if user_id:
+        image_name = f"{REGISTRY_URL}/{user_id}-{function_name}:latest"
+    else:
+        image_name = f"{REGISTRY_URL}/{function_name}:latest"
     
     # For MVP, we'll use the host's localhost:5001 which is mapped to the registry container
     push_registry = 'localhost:5001'
@@ -92,7 +96,12 @@ def build_image(source_dir, function_name, runtime):
         subprocess.run(cmd, check=True)
         
         # Tag with registry service name for internal network
-        internal_image_name = f"{push_registry}/{function_name}:latest"
+        # Use the same naming convention (with user_id if provided)
+        if user_id:
+            internal_image_name = f"{push_registry}/{user_id}-{function_name}:latest"
+        else:
+            internal_image_name = f"{push_registry}/{function_name}:latest"
+            
         if internal_image_name != image_name:
             cmd = ["docker", "tag", image_name, internal_image_name]
             logger.info(f"Tagging image for internal network: {' '.join(cmd)}")
@@ -121,8 +130,14 @@ def build_function():
     file = request.files['file']
     function_name = request.form.get('name')
     
+    # Extract user ID from request headers
+    user_id = request.headers.get('X-User-ID')
+    
     if not function_name:
         return jsonify({"error": "Function name is required"}), 400
+        
+    if not user_id:
+        logger.warning("No user ID provided in request headers")
     
     # Create a temporary directory for the build
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -142,8 +157,8 @@ def build_function():
         # Inject scaffold files
         inject_scaffold(extract_dir, runtime)
         
-        # Build and push the image
-        image_name = build_image(extract_dir, function_name, runtime)
+        # Build and push the image with user ID
+        image_name = build_image(extract_dir, function_name, runtime, user_id)
         
         if not image_name:
             return jsonify({"error": "Build failed"}), 500

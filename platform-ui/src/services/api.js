@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { decodeToken } from '../utils/tokenUtils';
 
 // Base URLs for different services
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8080';
@@ -36,8 +37,22 @@ export const functionService = {
   // Get all functions
   listFunctions: async () => {
     try {
-      // Route through API Gateway to ensure user ID is passed correctly
-      const response = await api.get(`${API_URL}/function/list`);
+      // Get user info from token
+      let userId = 'admin';
+      const token = localStorage.getItem('token');
+      if (token) {
+        try {
+          // Decode JWT to get user ID
+          const decoded = decodeToken(token);
+          userId = decoded.id || decoded.sub || decoded.user_id || 'admin';
+        } catch (e) {
+          console.warn('Could not decode token, using default user ID:', e);
+        }
+      }
+      
+      // Send the user ID in the header instead of the URL path
+      const headers = { 'X-User-ID': userId };
+      const response = await api.get(`${API_URL}/function/list`, { headers });
       console.debug('Function list response:', response.data);
       return response.data;
     } catch (error) {
@@ -49,9 +64,27 @@ export const functionService = {
   // Get function details
   getFunction: async (name) => {
     try {
+      // Get user info from token
+      const token = localStorage.getItem('token');
+      let userId = 'admin'; // Default for backward compatibility
+      
+      if (token && token !== 'dev-token') {
+        try {
+          // Decode JWT to get user ID
+          const decoded = decodeToken(token);
+          userId = decoded.id || decoded.sub || decoded.user_id || 'admin';
+        } catch (e) {
+          console.warn('Could not decode token, using default user ID:', e);
+        }
+      }
+      
+      // Use the composite key format that includes user ID
+      const fullFunctionName = `${userId}-${name}`;
+      console.debug(`Getting function with composite key: ${fullFunctionName}`);
+      
       // For MVP, we'll use the list endpoint and filter for the specific function
       const response = await api.get(`${API_URL}/list`);
-      return response.data[name] || null;
+      return response.data[fullFunctionName] || null;
     } catch (error) {
       console.error(`Error getting function ${name}:`, error);
       throw error;
@@ -61,12 +94,39 @@ export const functionService = {
   // Invoke a function
   invokeFunction: async (name, method = 'GET', data = {}, endpoint = '') => {
     try {
+      // Get user info from token
+      const token = localStorage.getItem('token');
+      let userId = 'admin'; // Default for backward compatibility
+      
+      if (token && token !== 'dev-token') {
+        try {
+          // Decode JWT to get user ID
+          const decoded = decodeToken(token);
+          userId = decoded.id || decoded.sub || decoded.user_id || 'admin';
+        } catch (e) {
+          console.warn('Could not decode token, using default user ID:', e);
+        }
+      }
+      
+      // Extract the base function name, removing any user ID prefix
+      console.debug(`Function name: ${name}, userId: ${userId}`);
+      
+      // Check if the name already contains a user ID prefix
+      const parts = name.split('-');
+      const baseName = parts.length > 1 && parts[0].startsWith('user_') ? parts.slice(1).join('-') : name;
+      
+      console.debug(`Base function name: ${baseName}`);
+      
+      // Use the base name with the current user ID
+      const fullFunctionName = `${userId}-${baseName}`;
+      console.debug(`Invoking function with composite key: ${fullFunctionName}`);
+      
       console.debug(`Invoking function ${name} with method ${method} at endpoint ${endpoint}:`, data);
       
       // Prepare the URL with the endpoint if provided
       const functionUrl = endpoint 
-        ? `${API_URL}/function/${name}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`
-        : `${API_URL}/function/${name}`;
+        ? `${API_URL}/function/${fullFunctionName}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`
+        : `${API_URL}/function/${fullFunctionName}`;
       
       console.debug('Function request URL:', functionUrl);
       
@@ -107,13 +167,29 @@ export const functionService = {
   // Get function code as a zip file
   getFunctionCode: async (name) => {
     try {
-      console.debug(`Getting code for function ${name}`);
+      // Get user info from token
+      const token = localStorage.getItem('token');
+      let userId = 'admin'; // Default for backward compatibility
+      
+      if (token && token !== 'dev-token') {
+        try {
+          // Decode JWT to get user ID
+          const decoded = decodeToken(token);
+          userId = decoded.id || decoded.sub || decoded.user_id || 'admin';
+        } catch (e) {
+          console.warn('Could not decode token, using default user ID:', e);
+        }
+      }
+      
+      // Use the composite key format that includes user ID
+      const fullFunctionName = `${userId}-${name}`;
+      console.debug(`Getting code for function with composite key: ${fullFunctionName}`);
       
       // Use axios to get the file with responseType blob
-      const token = localStorage.getItem('token') || process.env.REACT_APP_AUTH_TOKEN || 'dev-token';
+      // Reuse the token we already have
       const response = await axios({
         method: 'GET',
-        url: `${BUILDER_URL}/get-function-code/${name}`,
+        url: `${BUILDER_URL}/get-function-code/${fullFunctionName}`,
         responseType: 'blob',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -131,12 +207,30 @@ export const functionService = {
   // Deploy a function (upload code)
   deployFunction: async (name, fileData, isRedeployment = false) => {
     try {
+      // Get user info from token
+      const token = localStorage.getItem('token');
+      let userId = 'admin'; // Default for backward compatibility
+      
+      if (token && token !== 'dev-token') {
+        try {
+          // Decode JWT to get user ID
+          const decoded = decodeToken(token);
+          userId = decoded.id || decoded.sub || decoded.user_id || 'admin';
+        } catch (e) {
+          console.warn('Could not decode token, using default user ID:', e);
+        }
+      }
+      
+      // Use the composite key format that includes user ID
+      const fullFunctionName = `${userId}-${name}`;
+      console.debug(`Deploying function with composite key: ${fullFunctionName}`);
+      
       const formData = new FormData();
       formData.append('file', fileData);
-      formData.append('name', name);
+      formData.append('name', fullFunctionName);
       
       // Use different headers for file upload
-      const token = localStorage.getItem('token') || process.env.REACT_APP_AUTH_TOKEN || 'dev-token';
+      // Reuse the token we already have
       const response = await axios.post(`${BUILDER_URL}/build`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
@@ -149,7 +243,7 @@ export const functionService = {
       if (!isRedeployment) {
         // Register with API Gateway
         await api.post(`${API_URL}/register`, {
-          name: name,
+          name: fullFunctionName,
           endpoint: `http://function-controller:8081`
         });
       }
@@ -157,7 +251,7 @@ export const functionService = {
       // Always register with Function Controller to update the image
       // Use the API Gateway as a proxy to ensure user ID is passed correctly
       await api.post(`${API_URL}/function/register`, {
-        name: name,
+        name: fullFunctionName,
         image: response.data.image,
         port: 0  // Let the controller assign a port
       });
@@ -172,8 +266,35 @@ export const functionService = {
   // Start a function
   startFunction: async (name) => {
     try {
+      // Get user info from token
+      const token = localStorage.getItem('token');
+      let userId = 'admin'; // Default for backward compatibility
+      
+      if (token && token !== 'dev-token') {
+        try {
+          // Decode JWT to get user ID
+          const decoded = decodeToken(token);
+          userId = decoded.id || decoded.sub || decoded.user_id || 'admin';
+        } catch (e) {
+          console.warn('Could not decode token, using default user ID:', e);
+        }
+      }
+      
+      // Extract the base function name, removing any user ID prefix
+      console.debug(`Function name: ${name}, userId: ${userId}`);
+      
+      // Check if the name already contains a user ID prefix
+      const parts = name.split('-');
+      const baseName = parts.length > 1 && parts[0].startsWith('user_') ? parts.slice(1).join('-') : name;
+      
+      console.debug(`Base function name: ${baseName}`);
+      
+      // Use the base name with the current user ID
+      const fullFunctionName = `${userId}-${baseName}`;
+      console.debug(`Starting function with composite key: ${fullFunctionName}`);
+      
       // Route through API Gateway to ensure user ID is passed correctly
-      const response = await api.post(`${API_URL}/function/start/${name}`);
+      const response = await api.post(`${API_URL}/function/start/${fullFunctionName}`);
       console.debug(`Start function ${name} response:`, response.data);
       return response.data;
     } catch (error) {
@@ -185,8 +306,35 @@ export const functionService = {
   // Stop a function
   stopFunction: async (name) => {
     try {
+      // Get user info from token
+      const token = localStorage.getItem('token');
+      let userId = 'admin'; // Default for backward compatibility
+      
+      if (token && token !== 'dev-token') {
+        try {
+          // Decode JWT to get user ID
+          const decoded = decodeToken(token);
+          userId = decoded.id || decoded.sub || decoded.user_id || 'admin';
+        } catch (e) {
+          console.warn('Could not decode token, using default user ID:', e);
+        }
+      }
+      
+      // Extract the base function name, removing any user ID prefix
+      console.debug(`Function name: ${name}, userId: ${userId}`);
+      
+      // Check if the name already contains a user ID prefix
+      const parts = name.split('-');
+      const baseName = parts.length > 1 && parts[0].startsWith('user_') ? parts.slice(1).join('-') : name;
+      
+      console.debug(`Base function name: ${baseName}`);
+      
+      // Use the base name with the current user ID
+      const fullFunctionName = `${userId}-${baseName}`;
+      console.debug(`Stopping function with composite key: ${fullFunctionName}`);
+      
       // Route through API Gateway to ensure user ID is passed correctly
-      const response = await api.post(`${API_URL}/function/stop/${name}`);
+      const response = await api.post(`${API_URL}/function/stop/${fullFunctionName}`);
       console.debug(`Stop function ${name} response:`, response.data);
       return response.data;
     } catch (error) {
@@ -198,13 +346,40 @@ export const functionService = {
   // Get function status (using list endpoint to avoid CORS issues)
   getFunctionStatus: async (name) => {
     try {
+      // Get user info from token
+      const token = localStorage.getItem('token');
+      let userId = 'admin'; // Default for backward compatibility
+      
+      if (token && token !== 'dev-token') {
+        try {
+          // Decode JWT to get user ID
+          const decoded = decodeToken(token);
+          userId = decoded.id || decoded.sub || decoded.user_id || 'admin';
+        } catch (e) {
+          console.warn('Could not decode token, using default user ID:', e);
+        }
+      }
+      
+      // Extract the base function name, removing any user ID prefix
+      console.debug(`Function name: ${name}, userId: ${userId}`);
+      
+      // Check if the name already contains a user ID prefix
+      const parts = name.split('-');
+      const baseName = parts.length > 1 && parts[0].startsWith('user_') ? parts.slice(1).join('-') : name;
+      
+      console.debug(`Base function name: ${baseName}`);
+      
+      // Use the base name with the current user ID
+      const fullFunctionName = `${userId}-${baseName}`;
+      console.debug(`Getting status for function with composite key: ${fullFunctionName}`);
+      
       // Use the list endpoint instead of status endpoint to avoid CORS issues
       const response = await api.get(`${CONTROLLER_URL}/list`);
-      console.debug(`Got function list to check status for ${name}:`, response.data);
+      console.debug(`Got function list to check status for ${fullFunctionName}:`, response.data);
       
       // Find the function in the list
-      if (response.data && response.data[name]) {
-        return response.data[name];
+      if (response.data && response.data[fullFunctionName]) {
+        return response.data[fullFunctionName];
       } else {
         throw new Error(`Function ${name} not found in list`);
       }
@@ -217,8 +392,35 @@ export const functionService = {
   // Delete a function
   deleteFunction: async (name) => {
     try {
+      // Get user info from token
+      const token = localStorage.getItem('token');
+      let userId = 'admin'; // Default for backward compatibility
+      
+      if (token && token !== 'dev-token') {
+        try {
+          // Decode JWT to get user ID
+          const decoded = decodeToken(token);
+          userId = decoded.id || decoded.sub || decoded.user_id || 'admin';
+        } catch (e) {
+          console.warn('Could not decode token, using default user ID:', e);
+        }
+      }
+      
+      // Extract the base function name, removing any user ID prefix
+      console.debug(`Function name: ${name}, userId: ${userId}`);
+      
+      // Check if the name already contains a user ID prefix
+      const parts = name.split('-');
+      const baseName = parts.length > 1 && parts[0].startsWith('user_') ? parts.slice(1).join('-') : name;
+      
+      console.debug(`Base function name: ${baseName}`);
+      
+      // Use the base name with the current user ID
+      const fullFunctionName = `${userId}-${baseName}`;
+      console.debug(`Deleting function with composite key: ${fullFunctionName}`);
+      
       // Route through API Gateway to ensure user ID is passed correctly
-      const response = await api.delete(`${API_URL}/function/delete/${name}`);
+      const response = await api.delete(`${API_URL}/function/delete/${fullFunctionName}`);
       console.debug(`Delete function ${name} response:`, response.data);
       return response.data;
     } catch (error) {
@@ -230,8 +432,35 @@ export const functionService = {
   // Get function logs
   getFunctionLogs: async (name, lines = 100) => {
     try {
-      console.debug(`Getting logs for function ${name} (${lines} lines)`);
+      // Get user info from token
+      const token = localStorage.getItem('token');
+      let userId = 'admin'; // Default for backward compatibility
+      
+      if (token && token !== 'dev-token') {
+        try {
+          // Decode JWT to get user ID
+          const decoded = decodeToken(token);
+          userId = decoded.id || decoded.sub || decoded.user_id || 'admin';
+        } catch (e) {
+          console.warn('Could not decode token, using default user ID:', e);
+        }
+      }
+      
+      // Extract the base function name, removing any user ID prefix
+      console.debug(`Function name: ${name}, userId: ${userId}`);
+      
+      // Check if the name already contains a user ID prefix
+      const parts = name.split('-');
+      const baseName = parts.length > 1 && parts[0].startsWith('user_') ? parts.slice(1).join('-') : name;
+      
+      console.debug(`Base function name: ${baseName}`);
+      
+      // Use the base name with the current user ID
+      const fullFunctionName = `${userId}-${baseName}`;
+      console.debug(`Getting logs for function with composite key: ${fullFunctionName} (${lines} lines)`);
+      
       // Use the JSON logs endpoint for more reliable parsing
+      // Note: The logs endpoint still uses the simple name, not the composite key
       const url = `${CONTROLLER_URL}/logs-json/${name}?lines=${lines}`;
       console.debug('Logs request URL:', url);
       

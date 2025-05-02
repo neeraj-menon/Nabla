@@ -280,6 +280,25 @@ func main() {
 
 		// No need to assign ports with internal networking
 
+		// Ensure the image name includes the user ID
+		// Check if the image name already has the user ID prefix
+		if !strings.HasPrefix(function.Image, "localhost:5001/"+userID+"-") {
+			// If not, update the image name to include the user ID
+			imageParts := strings.Split(function.Image, "/")
+			if len(imageParts) > 1 {
+				// Extract the function name and tag
+				nameAndTag := strings.Split(imageParts[1], ":")
+				if len(nameAndTag) > 0 {
+					// Create a new image name with user ID
+					function.Image = fmt.Sprintf("localhost:5001/%s-%s:%s", 
+						userID, 
+						nameAndTag[0], 
+						nameAndTag[len(nameAndTag)-1])
+					log.Printf("Updated image name to include user ID: %s", function.Image)
+				}
+			}
+		}
+
 		// Store function in registry
 		mutex.Lock()
 		// Use composite key of userID + "-" + functionName to prevent collisions
@@ -436,6 +455,93 @@ func main() {
 		io.Copy(w, resp.Body)
 	})
 
+	// List functions handler - supports both /list and /list/{userId}
+	http.HandleFunc("/list/", func(w http.ResponseWriter, r *http.Request) {
+		// Enable CORS
+		enableCors(w, r)
+
+		// Handle preflight requests
+		if r.Method == "OPTIONS" {
+			return
+		}
+
+		// Extract user ID from path
+		path := strings.TrimPrefix(r.URL.Path, "/list/")
+		userIDFromPath := path
+
+		// Create a copy of the functions map to avoid long lock times
+		mutex.RLock()
+		functionsCopy := make(map[string]*Function)
+		for _, fn := range functions {
+			// For user-specific listing, only include functions owned by the specified user
+			if userIDFromPath != "" && fn.UserID == userIDFromPath {
+				// Create a deep copy of each function
+				fnCopy := *fn
+				functionsCopy[fn.Name] = &fnCopy
+			}
+		}
+		mutex.RUnlock()
+
+		// Verify the status of each function's container
+		for _, fn := range functionsCopy {
+			if fn.Container != "" {
+				actuallyRunning := isContainerRunning(fn.Container)
+
+				// If the status has changed, update the original function in the map
+				if fn.Running != actuallyRunning {
+					log.Printf("Function %s container status mismatch: recorded=%v, actual=%v",
+						fn.Name, fn.Running, actuallyRunning)
+
+					// Update the copy
+					fn.Running = actuallyRunning
+
+					// Also update the original
+					mutex.Lock()
+					// Use composite key to find the original function
+					functionKey := fn.UserID + "-" + fn.Name
+					if original, exists := functions[functionKey]; exists {
+						original.Running = actuallyRunning
+						if !actuallyRunning {
+							original.Container = ""
+						}
+					}
+					mutex.Unlock()
+				}
+			}
+		}
+
+		// Convert to a response format with additional information
+		type FunctionResponse struct {
+			Name      string            `json:"name"`
+			Image     string            `json:"image"`
+			Container string            `json:"container,omitempty"`
+			Running   bool              `json:"running"`
+			Env       map[string]string `json:"env,omitempty"`
+			Endpoint  string            `json:"endpoint"`
+			UserID    string            `json:"user_id,omitempty"`
+		}
+
+		// Create a map with function names as keys
+		responseMap := make(map[string]FunctionResponse)
+		for _, fn := range functionsCopy {
+			// Create endpoint URL for the function
+			endpoint := fmt.Sprintf("/function/%s", fn.Name)
+			responseMap[fn.Name] = FunctionResponse{
+				Name:      fn.Name,
+				Image:     fn.Image,
+				Container: fn.Container,
+				Running:   fn.Running,
+				Env:       fn.Env,
+				Endpoint:  endpoint,
+				UserID:    fn.UserID,
+			}
+		}
+
+		// Write the response
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(responseMap)
+	})
+
 	// List functions handler
 	http.HandleFunc("/list", func(w http.ResponseWriter, r *http.Request) {
 		// Enable CORS
@@ -568,6 +674,21 @@ func main() {
 		// Use composite key to find the function
 		functionKey := userID + "-" + functionName
 		function, exists := functions[functionKey]
+		
+		// If not found with composite key, try to find by name for backward compatibility
+		if !exists {
+			log.Printf("Function not found with composite key %s, trying to find by name", functionKey)
+			// Look for functions with matching name and user ID
+			for key, fn := range functions {
+				if fn.Name == functionName && fn.UserID == userID {
+					function = fn
+					exists = true
+					functionKey = key
+					break
+				}
+			}
+		}
+		
 		if !exists {
 			http.Error(w, fmt.Sprintf("Function '%s' not found", functionName), http.StatusNotFound)
 			return
@@ -646,6 +767,21 @@ func main() {
 		// Use composite key to find the function
 		functionKey := userID + "-" + functionName
 		function, exists := functions[functionKey]
+		
+		// If not found with composite key, try to find by name for backward compatibility
+		if !exists {
+			log.Printf("Function not found with composite key %s, trying to find by name", functionKey)
+			// Look for functions with matching name and user ID
+			for key, fn := range functions {
+				if fn.Name == functionName && fn.UserID == userID {
+					function = fn
+					exists = true
+					functionKey = key
+					break
+				}
+			}
+		}
+		
 		if !exists {
 			http.Error(w, fmt.Sprintf("Function '%s' not found", functionName), http.StatusNotFound)
 			return
@@ -723,6 +859,21 @@ func main() {
 		// Use composite key to find the function
 		functionKey := userID + "-" + functionName
 		function, exists := functions[functionKey]
+		
+		// If not found with composite key, try to find by name for backward compatibility
+		if !exists {
+			log.Printf("Function not found with composite key %s, trying to find by name", functionKey)
+			// Look for functions with matching name and user ID
+			for key, fn := range functions {
+				if fn.Name == functionName && fn.UserID == userID {
+					function = fn
+					exists = true
+					functionKey = key
+					break
+				}
+			}
+		}
+		
 		if !exists {
 			log.Printf("Function '%s' not found for deletion", functionName)
 			http.Error(w, fmt.Sprintf("Function '%s' not found", functionName), http.StatusNotFound)
