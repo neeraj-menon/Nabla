@@ -181,8 +181,17 @@ export const functionService = {
         }
       }
       
-      // Use the composite key format that includes user ID
-      const fullFunctionName = `${userId}-${name}`;
+      // Extract the base function name, removing any user ID prefix
+      console.debug(`Function name: ${name}, userId: ${userId}`);
+      
+      // Check if the name already contains a user ID prefix
+      const parts = name.split('-');
+      const baseName = parts.length > 1 && parts[0].startsWith('user_') ? parts.slice(1).join('-') : name;
+      
+      console.debug(`Base function name: ${baseName}`);
+      
+      // Use the base name with the current user ID
+      const fullFunctionName = `${userId}-${baseName}`;
       console.debug(`Getting code for function with composite key: ${fullFunctionName}`);
       
       // Use axios to get the file with responseType blob
@@ -221,8 +230,17 @@ export const functionService = {
         }
       }
       
-      // Use the composite key format that includes user ID
-      const fullFunctionName = `${userId}-${name}`;
+      // Extract the base function name, removing any user ID prefix
+      console.debug(`Function name: ${name}, userId: ${userId}`);
+      
+      // Check if the name already contains a user ID prefix
+      const parts = name.split('-');
+      const baseName = parts.length > 1 && parts[0].startsWith('user_') ? parts.slice(1).join('-') : name;
+      
+      console.debug(`Base function name: ${baseName}`);
+      
+      // Use the base name with the current user ID
+      const fullFunctionName = `${userId}-${baseName}`;
       console.debug(`Deploying function with composite key: ${fullFunctionName}`);
       
       const formData = new FormData();
